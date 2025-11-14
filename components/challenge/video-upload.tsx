@@ -1,0 +1,175 @@
+"use client";
+
+import { useState, useRef } from "react";
+import { useAction, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+
+interface VideoUploadProps {
+  challengeId: Id<"challenges">;
+  dayNumber: number;
+  customPrompt: string;
+  onUploadComplete?: () => void;
+}
+
+export function VideoUpload({
+  challengeId,
+  dayNumber,
+  customPrompt,
+  onUploadComplete,
+}: VideoUploadProps) {
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const getUploadUrl = useAction(api.cloudflare.getCloudflareUploadUrl);
+  const createSubmission = useMutation(api.challenges.createVideoSubmission);
+  const analyzeVideo = useAction(api.analysis.analyzeVideo);
+  const updateAnalysis = useMutation(api.challenges.updateSubmissionAnalysis);
+
+  async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("video/")) {
+      setError("Please select a video file");
+      return;
+    }
+
+    // Validate file size (max 500MB)
+    if (file.size > 500 * 1024 * 1024) {
+      setError("Video file must be less than 500MB");
+      return;
+    }
+
+    setError(null);
+    await uploadVideo(file);
+  }
+
+  async function uploadVideo(file: File) {
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    try {
+      // Step 1: Get Cloudflare upload URL
+      const { uploadUrl, uploadId } = await getUploadUrl({});
+
+      // Step 2: Upload video directly to Cloudflare
+      const xhr = new XMLHttpRequest();
+
+      await new Promise<void>((resolve, reject) => {
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            const percentComplete = (e.loaded / e.total) * 100;
+            setUploadProgress(percentComplete);
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener("error", () => {
+          reject(new Error("Upload failed"));
+        });
+
+        xhr.open("POST", uploadUrl);
+        xhr.send(file);
+      });
+
+      // Step 3: Wait a bit for Cloudflare to process the video
+      // In production, you'd use webhooks, but for now we'll poll
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Step 4: Create submission record
+      const submissionId = await createSubmission({
+        challengeId,
+        dayNumber,
+        cloudflareStreamId: uploadId,
+      });
+
+      // Step 5: Get video URL from Cloudflare and analyze
+      // Note: In production, you'd get the video URL from Cloudflare API
+      // For now, we'll construct it (this may need adjustment based on Cloudflare's actual API)
+      const videoUrl = `https://customer-${process.env.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT_ID}.cloudflarestream.com/${uploadId}/manifest/video.m3u8`;
+      
+      // For now, we'll use a placeholder URL. In production, fetch the actual video URL from Cloudflare
+      // This is a simplified approach - you may need to fetch the video URL from Cloudflare's API first
+      const analysisResults = await analyzeVideo({
+        videoUrl: `https://videodelivery.net/${uploadId}/manifest/video.m3u8`,
+        customPrompt,
+        dayNumber,
+      });
+
+      // Step 6: Update submission with analysis results
+      await updateAnalysis({
+        submissionId,
+        analysisResults,
+      });
+
+      setUploadProgress(100);
+      onUploadComplete?.();
+    } catch (err) {
+      console.error("Upload error:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to upload video"
+      );
+      setUploadProgress(0);
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Upload Day {dayNumber} Video</CardTitle>
+        <CardDescription>
+          Upload your video for day {dayNumber} of the challenge
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          onChange={handleFileSelect}
+          disabled={isUploading}
+          className="hidden"
+        />
+        <Button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="w-full"
+        >
+          {isUploading ? "Uploading..." : "Select Video File"}
+        </Button>
+
+        {isUploading && (
+          <div className="space-y-2">
+            <Progress value={uploadProgress} />
+            <p className="text-sm text-muted-foreground text-center">
+              {Math.round(uploadProgress)}% uploaded
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
+            {error}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
