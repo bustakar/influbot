@@ -160,11 +160,15 @@ export function VideoUpload({
               status: xhr.status,
               statusText: xhr.statusText,
               responseText: xhr.responseText,
+              contentType: xhr.getResponseHeader('content-type'),
             });
+            
             let errorMessage = `Upload failed with status ${xhr.status}`;
+            
+            // Try to parse as JSON first
             try {
               const errorResponse = JSON.parse(xhr.responseText);
-              console.error('[VideoUpload] Error response:', errorResponse);
+              console.error('[VideoUpload] Error response (JSON):', errorResponse);
               if (errorResponse.errors && errorResponse.errors.length > 0) {
                 errorMessage = errorResponse.errors[0].message || errorMessage;
                 console.error(
@@ -175,9 +179,11 @@ export function VideoUpload({
                 errorMessage = errorResponse.message;
               }
             } catch (e) {
-              console.error('[VideoUpload] Failed to parse error response:', e);
-              // Use default error message
+              // If not JSON, use the plain text response (Cloudflare returns plain text errors)
+              console.error('[VideoUpload] Error response is plain text:', xhr.responseText);
+              errorMessage = xhr.responseText.trim() || errorMessage;
             }
+            
             reject(new Error(errorMessage));
           }
         });
@@ -205,9 +211,17 @@ export function VideoUpload({
           uploadUrl.substring(0, 100) + '...'
         );
         xhr.open('POST', uploadUrl);
-        // Cloudflare Stream direct upload expects the raw file as the body
-        // Don't set Content-Type - let the browser handle it
-        console.log('[VideoUpload] Sending file...');
+        
+        // Cloudflare Stream direct upload expects raw binary file data
+        // Important: Do NOT set Content-Type header - Cloudflare handles it automatically
+        // Setting Content-Type can cause "Decoding Error" if it doesn't match the actual file format
+        console.log('[VideoUpload] File details:', {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+        });
+        
+        console.log('[VideoUpload] Sending file as raw binary (no Content-Type header)...');
         xhr.send(file);
       });
 
