@@ -91,14 +91,22 @@ export function VideoUpload({
       const actualStreamId = await (async (): Promise<string> => {
         try {
           console.log('[VideoUpload] Sending file using Fetch API...');
-          console.log('[VideoUpload] Upload URL:', uploadUrl.substring(0, 100) + '...');
-          
-          // Use fetch API - it handles file encoding better than XMLHttpRequest
-          // Cloudflare Stream expects raw binary file data as request body
+          console.log(
+            '[VideoUpload] Upload URL:',
+            uploadUrl.substring(0, 100) + '...'
+          );
+
+          // Create FormData and append the video file
+          // Cloudflare Stream expects multipart/form-data with file in 'file' field
+          const formData = new FormData();
+          formData.append('file', file);
+
+          console.log('[VideoUpload] Created FormData with file');
+
           const response = await fetch(uploadUrl, {
             method: 'POST',
-            body: file, // Send file directly as body (raw binary)
-            // Don't set Content-Type - Cloudflare detects it automatically
+            body: formData,
+            // Don't set Content-Type - browser will set it with proper boundary
           });
 
           // Update progress to 100% when request completes
@@ -112,13 +120,16 @@ export function VideoUpload({
           });
 
           const responseText = await response.text();
-          console.log('[VideoUpload] Response body:', responseText.substring(0, 500));
+          console.log(
+            '[VideoUpload] Response body:',
+            responseText.substring(0, 500)
+          );
 
           if (response.ok) {
             try {
               const data = JSON.parse(responseText);
               console.log('[VideoUpload] Parsed response:', data);
-              
+
               // Cloudflare returns { result: { uid: "...", ... } } on success
               if (data.result && data.result.uid) {
                 console.log(
@@ -127,16 +138,29 @@ export function VideoUpload({
                 );
                 return data.result.uid;
               } else {
-                console.error('[VideoUpload] Response missing result.uid:', data);
-                throw new Error(`Upload failed: ${responseText || 'Unknown error'}`);
+                console.error(
+                  '[VideoUpload] Response missing result.uid:',
+                  data
+                );
+                throw new Error(
+                  `Upload failed: ${responseText || 'Unknown error'}`
+                );
               }
             } catch (e) {
-              console.error('[VideoUpload] Failed to parse response as JSON:', e);
+              console.error(
+                '[VideoUpload] Failed to parse response as JSON:',
+                e
+              );
               if (responseText.trim() === '') {
-                console.log('[VideoUpload] Empty response, using uploadId:', uploadId);
+                console.log(
+                  '[VideoUpload] Empty response, using uploadId:',
+                  uploadId
+                );
                 return uploadId;
               } else {
-                throw new Error(`Upload failed: Invalid response - ${responseText}`);
+                throw new Error(
+                  `Upload failed: Invalid response - ${responseText}`
+                );
               }
             }
           } else {
@@ -148,11 +172,14 @@ export function VideoUpload({
             });
 
             let errorMessage = `Upload failed with status ${response.status}`;
-            
+
             // Try to parse as JSON first
             try {
               const errorResponse = JSON.parse(responseText);
-              console.error('[VideoUpload] Error response (JSON):', errorResponse);
+              console.error(
+                '[VideoUpload] Error response (JSON):',
+                errorResponse
+              );
               if (errorResponse.errors && errorResponse.errors.length > 0) {
                 errorMessage = errorResponse.errors[0].message || errorMessage;
               } else if (errorResponse.message) {
@@ -160,10 +187,13 @@ export function VideoUpload({
               }
             } catch (e) {
               // If not JSON, use the plain text response
-              console.error('[VideoUpload] Error response is plain text:', responseText);
+              console.error(
+                '[VideoUpload] Error response is plain text:',
+                responseText
+              );
               errorMessage = responseText.trim() || errorMessage;
             }
-            
+
             throw new Error(errorMessage);
           }
         } catch (error) {

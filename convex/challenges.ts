@@ -1,6 +1,6 @@
-import { query, mutation, internalMutation } from "./_generated/server";
-import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
+import { v } from 'convex/values';
+import { Id } from './_generated/dataModel';
+import { internalMutation, mutation, query } from './_generated/server';
 
 /**
  * Get the user's active challenge.
@@ -10,12 +10,12 @@ export const getActiveChallenge = query({
   returns: v.union(
     v.null(),
     v.object({
-      _id: v.id("challenges"),
+      _id: v.id('challenges'),
       _creationTime: v.number(),
       userId: v.string(),
       startDate: v.number(),
       customPrompt: v.string(),
-      status: v.union(v.literal("active"), v.literal("completed")),
+      status: v.union(v.literal('active'), v.literal('completed')),
     })
   ),
   handler: async (ctx) => {
@@ -25,9 +25,9 @@ export const getActiveChallenge = query({
     }
 
     const challenge = await ctx.db
-      .query("challenges")
-      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
-      .filter((q) => q.eq(q.field("status"), "active"))
+      .query('challenges')
+      .withIndex('by_user', (q) => q.eq('userId', identity.subject))
+      .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
 
     return challenge ?? null;
@@ -39,13 +39,13 @@ export const getActiveChallenge = query({
  */
 export const getChallengeSubmissions = query({
   args: {
-    challengeId: v.id("challenges"),
+    challengeId: v.id('challenges'),
   },
   returns: v.array(
     v.object({
-      _id: v.id("videoSubmissions"),
+      _id: v.id('videoSubmissions'),
       _creationTime: v.number(),
-      challengeId: v.id("challenges"),
+      challengeId: v.id('challenges'),
       dayNumber: v.number(),
       cloudflareStreamId: v.string(),
       analysisResults: v.union(
@@ -66,11 +66,9 @@ export const getChallengeSubmissions = query({
   ),
   handler: async (ctx, args) => {
     const submissions = await ctx.db
-      .query("videoSubmissions")
-      .withIndex("by_challenge", (q) =>
-        q.eq("challengeId", args.challengeId)
-      )
-      .order("asc")
+      .query('videoSubmissions')
+      .withIndex('by_challenge', (q) => q.eq('challengeId', args.challengeId))
+      .order('asc')
       .collect();
 
     return submissions;
@@ -82,15 +80,15 @@ export const getChallengeSubmissions = query({
  */
 export const getSubmission = query({
   args: {
-    challengeId: v.id("challenges"),
+    challengeId: v.id('challenges'),
     dayNumber: v.number(),
   },
   returns: v.union(
     v.null(),
     v.object({
-      _id: v.id("videoSubmissions"),
+      _id: v.id('videoSubmissions'),
       _creationTime: v.number(),
-      challengeId: v.id("challenges"),
+      challengeId: v.id('challenges'),
       dayNumber: v.number(),
       cloudflareStreamId: v.string(),
       analysisResults: v.union(
@@ -111,9 +109,9 @@ export const getSubmission = query({
   ),
   handler: async (ctx, args) => {
     const submission = await ctx.db
-      .query("videoSubmissions")
-      .withIndex("by_challenge_and_day", (q) =>
-        q.eq("challengeId", args.challengeId).eq("dayNumber", args.dayNumber)
+      .query('videoSubmissions')
+      .withIndex('by_challenge_and_day', (q) =>
+        q.eq('challengeId', args.challengeId).eq('dayNumber', args.dayNumber)
       )
       .unique();
 
@@ -128,29 +126,29 @@ export const createChallenge = mutation({
   args: {
     customPrompt: v.string(),
   },
-  returns: v.id("challenges"),
+  returns: v.id('challenges'),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      throw new Error("Not authenticated");
+      throw new Error('Not authenticated');
     }
 
     // Check if user already has an active challenge
     const existingChallenge = await ctx.db
-      .query("challenges")
-      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
-      .filter((q) => q.eq(q.field("status"), "active"))
+      .query('challenges')
+      .withIndex('by_user', (q) => q.eq('userId', identity.subject))
+      .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
 
     if (existingChallenge) {
-      throw new Error("User already has an active challenge");
+      throw new Error('User already has an active challenge');
     }
 
-    const challengeId = await ctx.db.insert("challenges", {
+    const challengeId = await ctx.db.insert('challenges', {
       userId: identity.subject,
       startDate: Date.now(),
       customPrompt: args.customPrompt,
-      status: "active",
+      status: 'active',
     });
 
     return challengeId;
@@ -162,11 +160,11 @@ export const createChallenge = mutation({
  */
 export const createVideoSubmission = mutation({
   args: {
-    challengeId: v.id("challenges"),
+    challengeId: v.id('challenges'),
     dayNumber: v.number(),
     cloudflareStreamId: v.string(),
   },
-  returns: v.id("videoSubmissions"),
+  returns: v.id('videoSubmissions'),
   handler: async (ctx, args) => {
     console.log('[createVideoSubmission] Starting:', {
       challengeId: args.challengeId,
@@ -177,16 +175,22 @@ export const createVideoSubmission = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       console.error('[createVideoSubmission] Not authenticated');
-      throw new Error("Not authenticated");
+      throw new Error('Not authenticated');
     }
 
-    console.log('[createVideoSubmission] User authenticated:', identity.subject);
+    console.log(
+      '[createVideoSubmission] User authenticated:',
+      identity.subject
+    );
 
     // Verify challenge belongs to user
     const challenge = await ctx.db.get(args.challengeId);
     if (!challenge) {
-      console.error('[createVideoSubmission] Challenge not found:', args.challengeId);
-      throw new Error("Challenge not found");
+      console.error(
+        '[createVideoSubmission] Challenge not found:',
+        args.challengeId
+      );
+      throw new Error('Challenge not found');
     }
     console.log('[createVideoSubmission] Challenge found:', {
       challengeId: challenge._id,
@@ -195,30 +199,39 @@ export const createVideoSubmission = mutation({
     });
 
     if (challenge.userId !== identity.subject) {
-      console.error('[createVideoSubmission] Challenge does not belong to user:', {
-        challengeUserId: challenge.userId,
-        currentUserId: identity.subject,
-      });
-      throw new Error("Challenge does not belong to user");
+      console.error(
+        '[createVideoSubmission] Challenge does not belong to user:',
+        {
+          challengeUserId: challenge.userId,
+          currentUserId: identity.subject,
+        }
+      );
+      throw new Error('Challenge does not belong to user');
     }
 
     // Check if submission for this day already exists
     const existingSubmission = await ctx.db
-      .query("videoSubmissions")
-      .withIndex("by_challenge_and_day", (q) =>
-        q.eq("challengeId", args.challengeId).eq("dayNumber", args.dayNumber)
+      .query('videoSubmissions')
+      .withIndex('by_challenge_and_day', (q) =>
+        q.eq('challengeId', args.challengeId).eq('dayNumber', args.dayNumber)
       )
       .unique();
 
     if (existingSubmission) {
-      console.error('[createVideoSubmission] Submission already exists:', existingSubmission._id);
-      throw new Error("Submission for this day already exists");
+      console.error(
+        '[createVideoSubmission] Submission already exists:',
+        existingSubmission._id
+      );
+      throw new Error('Submission for this day already exists');
     }
 
     // Validate day number
     if (args.dayNumber < 1 || args.dayNumber > 30) {
-      console.error('[createVideoSubmission] Invalid day number:', args.dayNumber);
-      throw new Error("Day number must be between 1 and 30");
+      console.error(
+        '[createVideoSubmission] Invalid day number:',
+        args.dayNumber
+      );
+      throw new Error('Day number must be between 1 and 30');
     }
 
     const submissionData = {
@@ -229,11 +242,20 @@ export const createVideoSubmission = mutation({
       submittedAt: Date.now(),
     };
 
-    console.log('[createVideoSubmission] Inserting submission:', submissionData);
+    console.log(
+      '[createVideoSubmission] Inserting submission:',
+      submissionData
+    );
 
-    const submissionId = await ctx.db.insert("videoSubmissions", submissionData);
+    const submissionId = await ctx.db.insert(
+      'videoSubmissions',
+      submissionData
+    );
 
-    console.log('[createVideoSubmission] Submission created successfully:', submissionId);
+    console.log(
+      '[createVideoSubmission] Submission created successfully:',
+      submissionId
+    );
 
     return submissionId;
   },
@@ -244,7 +266,7 @@ export const createVideoSubmission = mutation({
  */
 export const updateSubmissionAnalysis = internalMutation({
   args: {
-    submissionId: v.id("videoSubmissions"),
+    submissionId: v.id('videoSubmissions'),
     analysisResults: v.object({
       scores: v.object({
         voiceClarity: v.number(),
@@ -273,4 +295,3 @@ export const updateSubmissionAnalysis = internalMutation({
     return null;
   },
 });
-

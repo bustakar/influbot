@@ -1,7 +1,7 @@
-"use node";
+'use node';
 
-import { internalAction } from "./_generated/server";
-import { v } from "convex/values";
+import { v } from 'convex/values';
+import { internalAction } from './_generated/server';
 
 interface AnalysisResponse {
   scores: {
@@ -42,11 +42,11 @@ function parseAnalysisResponse(responseText: string): AnalysisResponse {
 
   // Fallback: extract scores from text and create structured response
   const scores = {
-    voiceClarity: extractScore(responseText, "voice clarity", "voice"),
-    posture: extractScore(responseText, "posture", "stance"),
-    eyeContact: extractScore(responseText, "eye contact", "eye"),
-    fluency: extractScore(responseText, "fluency", "fluent"),
-    confidence: extractScore(responseText, "confidence", "confident"),
+    voiceClarity: extractScore(responseText, 'voice clarity', 'voice'),
+    posture: extractScore(responseText, 'posture', 'stance'),
+    eyeContact: extractScore(responseText, 'eye contact', 'eye'),
+    fluency: extractScore(responseText, 'fluency', 'fluent'),
+    confidence: extractScore(responseText, 'confidence', 'confident'),
   };
 
   return {
@@ -68,10 +68,7 @@ function extractScore(
 
   for (const keyword of keywords) {
     // Look for patterns like "voice clarity: 85" or "85/100"
-    const regex = new RegExp(
-      `${keyword}[^0-9]*([0-9]{1,3})(?:/100)?`,
-      "i"
-    );
+    const regex = new RegExp(`${keyword}[^0-9]*([0-9]{1,3})(?:/100)?`, 'i');
     const match = lowerText.match(regex);
     if (match) {
       const score = parseInt(match[1], 10);
@@ -86,10 +83,7 @@ function extractScore(
 /**
  * Build the analysis prompt with user's custom focus areas.
  */
-function buildAnalysisPrompt(
-  customPrompt: string,
-  dayNumber: number
-): string {
+function buildAnalysisPrompt(customPrompt: string, dayNumber: number): string {
   return `You are analyzing a video recording for a 30-day speaking improvement challenge. This is day ${dayNumber} of the challenge.
 
 User's specific focus areas: ${customPrompt}
@@ -147,20 +141,20 @@ export const analyzeVideo = internalAction({
 
     if (!apiKey) {
       console.error('[analyzeVideo] OPENROUTER_API_KEY not set');
-      throw new Error("OPENROUTER_API_KEY must be set");
+      throw new Error('OPENROUTER_API_KEY must be set');
     }
 
     const prompt = buildAnalysisPrompt(args.customPrompt, args.dayNumber);
     console.log('[analyzeVideo] Built analysis prompt, length:', prompt.length);
 
     const requestBody = {
-      model: "google/gemini-1.5-pro",
+      model: 'google/gemini-1.5-pro',
       messages: [
         {
-          role: "user",
+          role: 'user',
           content: [
             {
-              type: "text",
+              type: 'text',
               text: `${prompt}\n\nVideo URL: ${args.videoUrl}`,
             },
           ],
@@ -170,22 +164,26 @@ export const analyzeVideo = internalAction({
     };
 
     console.log('[analyzeVideo] Making request to OpenRouter:', {
-      url: "https://openrouter.ai/api/v1/chat/completions",
+      url: 'https://openrouter.ai/api/v1/chat/completions',
       model: requestBody.model,
       messageLength: requestBody.messages[0].content[0].text.length,
     });
 
     // Use Gemini 1.5 Pro which supports video analysis
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey.substring(0, 10)}...`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-        "X-Title": "30-Day Video Challenge",
-      },
-      body: JSON.stringify(requestBody),
-    });
+    const response = await fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey.substring(0, 10)}...`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer':
+            process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000',
+          'X-Title': '30-Day Video Challenge',
+        },
+        body: JSON.stringify(requestBody),
+      }
+    );
 
     console.log('[analyzeVideo] Response status:', {
       status: response.status,
@@ -200,7 +198,10 @@ export const analyzeVideo = internalAction({
     }
 
     const responseText = await response.text();
-    console.log('[analyzeVideo] Response body (first 500 chars):', responseText.substring(0, 500));
+    console.log(
+      '[analyzeVideo] Response body (first 500 chars):',
+      responseText.substring(0, 500)
+    );
 
     const data = JSON.parse(responseText) as {
       choices: Array<{
@@ -213,7 +214,7 @@ export const analyzeVideo = internalAction({
     const content = data.choices[0]?.message?.content;
     if (!content) {
       console.error('[analyzeVideo] No content in response:', data);
-      throw new Error("No content in AI response");
+      throw new Error('No content in AI response');
     }
 
     console.log('[analyzeVideo] Got AI response, length:', content.length);
@@ -228,4 +229,3 @@ export const analyzeVideo = internalAction({
     return parsed;
   },
 });
-
