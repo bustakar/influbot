@@ -61,7 +61,7 @@ export function VideoUpload({
       // Step 2: Upload video directly to Cloudflare
       const xhr = new XMLHttpRequest();
 
-      await new Promise<void>((resolve, reject) => {
+      const actualStreamId = await new Promise<string>((resolve, reject) => {
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) {
             const percentComplete = (e.loaded / e.total) * 100;
@@ -71,13 +71,14 @@ export function VideoUpload({
 
         xhr.addEventListener("load", () => {
           // Cloudflare Stream direct upload returns 200 on success
-          // But we should also check the response body
+          // The response contains the actual video ID
           if (xhr.status === 200) {
             try {
               const response = JSON.parse(xhr.responseText);
               // Cloudflare returns { result: { uid: "...", ... } } on success
               if (response.result && response.result.uid) {
-                resolve();
+                // Use the uid from the upload response, not the pre-upload uid
+                resolve(response.result.uid);
               } else {
                 reject(
                   new Error(
@@ -86,9 +87,17 @@ export function VideoUpload({
                 );
               }
             } catch (e) {
-              // If response is not JSON, still resolve if status is 200
-              // Some Cloudflare endpoints return empty body on success
-              resolve();
+              // If response is not JSON, check if it's empty (some endpoints do this)
+              if (xhr.responseText.trim() === "") {
+                // Empty response might mean success, use the uploadId we got earlier
+                resolve(uploadId);
+              } else {
+                reject(
+                  new Error(
+                    `Upload failed: Invalid response - ${xhr.responseText}`
+                  )
+                );
+              }
             }
           } else {
             let errorMessage = `Upload failed with status ${xhr.status}`;
@@ -115,21 +124,22 @@ export function VideoUpload({
         });
 
         xhr.open("POST", uploadUrl);
-        // Don't set Content-Type header - let browser set it with boundary for multipart
+        // Cloudflare Stream direct upload expects the raw file as the body
+        // Don't set Content-Type - let the browser handle it
         xhr.send(file);
       });
 
-      // Step 3: Create submission record
+      // Step 3: Create submission record using the actual stream ID from upload
       const submissionId = await createSubmission({
         challengeId,
         dayNumber,
-        cloudflareStreamId: uploadId,
+        cloudflareStreamId: actualStreamId,
       });
 
       // Step 4: Process video upload and trigger analysis (runs in background)
       await processUpload({
         submissionId,
-        cloudflareStreamId: uploadId,
+        cloudflareStreamId: actualStreamId,
         customPrompt,
         dayNumber,
       });
