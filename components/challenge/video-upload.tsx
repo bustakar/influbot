@@ -218,15 +218,11 @@ export function VideoUpload({
           size: file.size,
         });
         
-        // Cloudflare Stream direct upload can accept the file as raw binary
-        // Try sending as FormData first (more compatible), fallback to raw binary if needed
-        // Some Cloudflare endpoints expect multipart/form-data
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        console.log('[VideoUpload] Sending file as FormData...');
-        // Don't set Content-Type - browser will set it with boundary for multipart
-        xhr.send(formData);
+        // Cloudflare Stream direct upload expects raw binary file data
+        // Send the file directly as the request body (not FormData)
+        // Important: Do NOT set Content-Type - Cloudflare detects it automatically
+        console.log('[VideoUpload] Sending file as raw binary (File object directly)...');
+        xhr.send(file);
       });
 
       console.log(
