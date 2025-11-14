@@ -77,161 +77,102 @@ export function VideoUpload({
         uploadId,
       });
 
-      // Step 2: Upload video directly to Cloudflare
+      // Step 2: Upload video directly to Cloudflare using Fetch API
+      // Fetch API handles large files and encoding better than XMLHttpRequest
       console.log(
         '[VideoUpload] Step 2: Starting file upload to Cloudflare...'
       );
-      const xhr = new XMLHttpRequest();
+      console.log('[VideoUpload] File details:', {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
 
-      const actualStreamId = await new Promise<string>((resolve, reject) => {
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) {
-            const percentComplete = (e.loaded / e.total) * 100;
-            setUploadProgress(percentComplete);
-            if (percentComplete % 25 === 0) {
-              console.log(
-                `[VideoUpload] Upload progress: ${Math.round(percentComplete)}%`
-              );
-            }
-          }
-        });
-
-        xhr.addEventListener('load', () => {
-          console.log('[VideoUpload] Upload completed, response received:', {
-            status: xhr.status,
-            statusText: xhr.statusText,
-            responseHeaders: xhr.getAllResponseHeaders(),
-            responseText: xhr.responseText.substring(0, 500),
-            responseType: xhr.responseType,
+      const actualStreamId = await (async (): Promise<string> => {
+        try {
+          console.log('[VideoUpload] Sending file using Fetch API...');
+          console.log('[VideoUpload] Upload URL:', uploadUrl.substring(0, 100) + '...');
+          
+          // Use fetch API - it handles file encoding better than XMLHttpRequest
+          // Cloudflare Stream expects raw binary file data as request body
+          const response = await fetch(uploadUrl, {
+            method: 'POST',
+            body: file, // Send file directly as body (raw binary)
+            // Don't set Content-Type - Cloudflare detects it automatically
           });
 
-          // Cloudflare Stream direct upload returns 200 on success
-          // The response contains the actual video ID
-          if (xhr.status === 200) {
+          // Update progress to 100% when request completes
+          setUploadProgress(100);
+
+          console.log('[VideoUpload] Upload completed, response received:', {
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok,
+            headers: Object.fromEntries(response.headers.entries()),
+          });
+
+          const responseText = await response.text();
+          console.log('[VideoUpload] Response body:', responseText.substring(0, 500));
+
+          if (response.ok) {
             try {
-              const response = JSON.parse(xhr.responseText);
-              console.log('[VideoUpload] Parsed response:', response);
+              const data = JSON.parse(responseText);
+              console.log('[VideoUpload] Parsed response:', data);
+              
               // Cloudflare returns { result: { uid: "...", ... } } on success
-              if (response.result && response.result.uid) {
+              if (data.result && data.result.uid) {
                 console.log(
                   '[VideoUpload] Upload successful, got stream ID:',
-                  response.result.uid
+                  data.result.uid
                 );
-                // Use the uid from the upload response, not the pre-upload uid
-                resolve(response.result.uid);
+                return data.result.uid;
               } else {
-                console.error(
-                  '[VideoUpload] Response missing result.uid:',
-                  response
-                );
-                reject(
-                  new Error(
-                    `Upload failed: ${xhr.responseText || 'Unknown error'}`
-                  )
-                );
+                console.error('[VideoUpload] Response missing result.uid:', data);
+                throw new Error(`Upload failed: ${responseText || 'Unknown error'}`);
               }
             } catch (e) {
-              console.error(
-                '[VideoUpload] Failed to parse response as JSON:',
-                e
-              );
-              // If response is not JSON, check if it's empty (some endpoints do this)
-              if (xhr.responseText.trim() === '') {
-                console.log(
-                  '[VideoUpload] Empty response, using uploadId:',
-                  uploadId
-                );
-                // Empty response might mean success, use the uploadId we got earlier
-                resolve(uploadId);
+              console.error('[VideoUpload] Failed to parse response as JSON:', e);
+              if (responseText.trim() === '') {
+                console.log('[VideoUpload] Empty response, using uploadId:', uploadId);
+                return uploadId;
               } else {
-                console.error(
-                  '[VideoUpload] Non-empty non-JSON response:',
-                  xhr.responseText
-                );
-                reject(
-                  new Error(
-                    `Upload failed: Invalid response - ${xhr.responseText}`
-                  )
-                );
+                throw new Error(`Upload failed: Invalid response - ${responseText}`);
               }
             }
           } else {
-            console.error('[VideoUpload] Upload failed with non-200 status:', {
-              status: xhr.status,
-              statusText: xhr.statusText,
-              responseText: xhr.responseText,
-              contentType: xhr.getResponseHeader('content-type'),
+            // Handle error response
+            console.error('[VideoUpload] Upload failed:', {
+              status: response.status,
+              statusText: response.statusText,
+              responseText: responseText,
             });
 
-            let errorMessage = `Upload failed with status ${xhr.status}`;
-
+            let errorMessage = `Upload failed with status ${response.status}`;
+            
             // Try to parse as JSON first
             try {
-              const errorResponse = JSON.parse(xhr.responseText);
-              console.error(
-                '[VideoUpload] Error response (JSON):',
-                errorResponse
-              );
+              const errorResponse = JSON.parse(responseText);
+              console.error('[VideoUpload] Error response (JSON):', errorResponse);
               if (errorResponse.errors && errorResponse.errors.length > 0) {
                 errorMessage = errorResponse.errors[0].message || errorMessage;
-                console.error(
-                  '[VideoUpload] Error details:',
-                  errorResponse.errors
-                );
               } else if (errorResponse.message) {
                 errorMessage = errorResponse.message;
               }
             } catch (e) {
-              // If not JSON, use the plain text response (Cloudflare returns plain text errors)
-              console.error(
-                '[VideoUpload] Error response is plain text:',
-                xhr.responseText
-              );
-              errorMessage = xhr.responseText.trim() || errorMessage;
+              // If not JSON, use the plain text response
+              console.error('[VideoUpload] Error response is plain text:', responseText);
+              errorMessage = responseText.trim() || errorMessage;
             }
-
-            reject(new Error(errorMessage));
+            
+            throw new Error(errorMessage);
           }
-        });
-
-        xhr.addEventListener('error', (event) => {
-          console.error('[VideoUpload] Network error during upload:', event);
-          reject(new Error('Network error during upload'));
-        });
-
-        xhr.addEventListener('abort', () => {
-          console.warn('[VideoUpload] Upload was aborted');
-          reject(new Error('Upload was cancelled'));
-        });
-
-        xhr.addEventListener('loadstart', () => {
-          console.log('[VideoUpload] Upload started');
-        });
-
-        xhr.addEventListener('loadend', () => {
-          console.log('[VideoUpload] Upload loadend event fired');
-        });
-
-        console.log(
-          '[VideoUpload] Opening POST request to:',
-          uploadUrl.substring(0, 100) + '...'
-        );
-        xhr.open('POST', uploadUrl);
-
-        console.log('[VideoUpload] File details:', {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-        });
-
-        // Cloudflare Stream direct upload expects raw binary file data
-        // Send the file directly as the request body (not FormData)
-        // Important: Do NOT set Content-Type - Cloudflare detects it automatically
-        console.log(
-          '[VideoUpload] Sending file as raw binary (File object directly)...'
-        );
-        xhr.send(file);
-      });
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            throw new Error('Upload was cancelled');
+          }
+          throw error;
+        }
+      })();
 
       console.log(
         '[VideoUpload] Step 3: Creating submission record with stream ID:',
