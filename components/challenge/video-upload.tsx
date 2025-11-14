@@ -162,13 +162,16 @@ export function VideoUpload({
               responseText: xhr.responseText,
               contentType: xhr.getResponseHeader('content-type'),
             });
-            
+
             let errorMessage = `Upload failed with status ${xhr.status}`;
-            
+
             // Try to parse as JSON first
             try {
               const errorResponse = JSON.parse(xhr.responseText);
-              console.error('[VideoUpload] Error response (JSON):', errorResponse);
+              console.error(
+                '[VideoUpload] Error response (JSON):',
+                errorResponse
+              );
               if (errorResponse.errors && errorResponse.errors.length > 0) {
                 errorMessage = errorResponse.errors[0].message || errorMessage;
                 console.error(
@@ -180,10 +183,13 @@ export function VideoUpload({
               }
             } catch (e) {
               // If not JSON, use the plain text response (Cloudflare returns plain text errors)
-              console.error('[VideoUpload] Error response is plain text:', xhr.responseText);
+              console.error(
+                '[VideoUpload] Error response is plain text:',
+                xhr.responseText
+              );
               errorMessage = xhr.responseText.trim() || errorMessage;
             }
-            
+
             reject(new Error(errorMessage));
           }
         });
@@ -211,17 +217,19 @@ export function VideoUpload({
           uploadUrl.substring(0, 100) + '...'
         );
         xhr.open('POST', uploadUrl);
-        
+
         console.log('[VideoUpload] File details:', {
           name: file.name,
           type: file.type,
           size: file.size,
         });
-        
+
         // Cloudflare Stream direct upload expects raw binary file data
         // Send the file directly as the request body (not FormData)
         // Important: Do NOT set Content-Type - Cloudflare detects it automatically
-        console.log('[VideoUpload] Sending file as raw binary (File object directly)...');
+        console.log(
+          '[VideoUpload] Sending file as raw binary (File object directly)...'
+        );
         xhr.send(file);
       });
 
