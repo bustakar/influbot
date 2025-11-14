@@ -137,46 +137,72 @@ export const analyzeVideo = internalAction({
     feedback: v.string(),
   }),
   handler: async (ctx, args) => {
+    console.log('[analyzeVideo] Starting video analysis:', {
+      videoUrl: args.videoUrl.substring(0, 100) + '...',
+      dayNumber: args.dayNumber,
+      customPromptLength: args.customPrompt.length,
+    });
+
     const apiKey = process.env.OPENROUTER_API_KEY;
 
     if (!apiKey) {
+      console.error('[analyzeVideo] OPENROUTER_API_KEY not set');
       throw new Error("OPENROUTER_API_KEY must be set");
     }
 
     const prompt = buildAnalysisPrompt(args.customPrompt, args.dayNumber);
+    console.log('[analyzeVideo] Built analysis prompt, length:', prompt.length);
+
+    const requestBody = {
+      model: "google/gemini-1.5-pro",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${prompt}\n\nVideo URL: ${args.videoUrl}`,
+            },
+          ],
+        },
+      ],
+      max_tokens: 1000,
+    };
+
+    console.log('[analyzeVideo] Making request to OpenRouter:', {
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      model: requestBody.model,
+      messageLength: requestBody.messages[0].content[0].text.length,
+    });
 
     // Use Gemini 1.5 Pro which supports video analysis
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey.substring(0, 10)}...`,
         "Content-Type": "application/json",
         "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
         "X-Title": "30-Day Video Challenge",
       },
-      body: JSON.stringify({
-        model: "google/gemini-1.5-pro",
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `${prompt}\n\nVideo URL: ${args.videoUrl}`,
-              },
-            ],
-          },
-        ],
-        max_tokens: 1000,
-      }),
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log('[analyzeVideo] Response status:', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
     });
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('[analyzeVideo] Error response:', errorText);
       throw new Error(`OpenRouter API error: ${response.status} ${errorText}`);
     }
 
-    const data = (await response.json()) as {
+    const responseText = await response.text();
+    console.log('[analyzeVideo] Response body (first 500 chars):', responseText.substring(0, 500));
+
+    const data = JSON.parse(responseText) as {
       choices: Array<{
         message: {
           content: string;
@@ -186,10 +212,20 @@ export const analyzeVideo = internalAction({
 
     const content = data.choices[0]?.message?.content;
     if (!content) {
+      console.error('[analyzeVideo] No content in response:', data);
       throw new Error("No content in AI response");
     }
 
-    return parseAnalysisResponse(content);
+    console.log('[analyzeVideo] Got AI response, length:', content.length);
+    console.log('[analyzeVideo] Parsing analysis response...');
+
+    const parsed = parseAnalysisResponse(content);
+    console.log('[analyzeVideo] Parsed analysis:', {
+      scores: parsed.scores,
+      feedbackLength: parsed.feedback.length,
+    });
+
+    return parsed;
   },
 });
 

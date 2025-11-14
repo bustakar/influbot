@@ -168,17 +168,37 @@ export const createVideoSubmission = mutation({
   },
   returns: v.id("videoSubmissions"),
   handler: async (ctx, args) => {
+    console.log('[createVideoSubmission] Starting:', {
+      challengeId: args.challengeId,
+      dayNumber: args.dayNumber,
+      cloudflareStreamId: args.cloudflareStreamId,
+    });
+
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
+      console.error('[createVideoSubmission] Not authenticated');
       throw new Error("Not authenticated");
     }
+
+    console.log('[createVideoSubmission] User authenticated:', identity.subject);
 
     // Verify challenge belongs to user
     const challenge = await ctx.db.get(args.challengeId);
     if (!challenge) {
+      console.error('[createVideoSubmission] Challenge not found:', args.challengeId);
       throw new Error("Challenge not found");
     }
+    console.log('[createVideoSubmission] Challenge found:', {
+      challengeId: challenge._id,
+      userId: challenge.userId,
+      status: challenge.status,
+    });
+
     if (challenge.userId !== identity.subject) {
+      console.error('[createVideoSubmission] Challenge does not belong to user:', {
+        challengeUserId: challenge.userId,
+        currentUserId: identity.subject,
+      });
       throw new Error("Challenge does not belong to user");
     }
 
@@ -191,21 +211,29 @@ export const createVideoSubmission = mutation({
       .unique();
 
     if (existingSubmission) {
+      console.error('[createVideoSubmission] Submission already exists:', existingSubmission._id);
       throw new Error("Submission for this day already exists");
     }
 
     // Validate day number
     if (args.dayNumber < 1 || args.dayNumber > 30) {
+      console.error('[createVideoSubmission] Invalid day number:', args.dayNumber);
       throw new Error("Day number must be between 1 and 30");
     }
 
-    const submissionId = await ctx.db.insert("videoSubmissions", {
+    const submissionData = {
       challengeId: args.challengeId,
       dayNumber: args.dayNumber,
       cloudflareStreamId: args.cloudflareStreamId,
       analysisResults: null,
       submittedAt: Date.now(),
-    });
+    };
+
+    console.log('[createVideoSubmission] Inserting submission:', submissionData);
+
+    const submissionId = await ctx.db.insert("videoSubmissions", submissionData);
+
+    console.log('[createVideoSubmission] Submission created successfully:', submissionId);
 
     return submissionId;
   },
@@ -230,9 +258,18 @@ export const updateSubmissionAnalysis = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    console.log('[updateSubmissionAnalysis] Updating submission:', {
+      submissionId: args.submissionId,
+      scores: args.analysisResults.scores,
+      feedbackLength: args.analysisResults.feedback.length,
+    });
+
     await ctx.db.patch(args.submissionId, {
       analysisResults: args.analysisResults,
     });
+
+    console.log('[updateSubmissionAnalysis] Submission updated successfully');
+
     return null;
   },
 });
