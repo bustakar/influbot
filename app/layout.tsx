@@ -7,8 +7,8 @@ import { ClerkProvider } from "@clerk/nextjs";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "My App Title",
-  description: "My app description",
+  title: "30-Day Video Challenge",
+  description: "Upload a video each day for 30 days and get AI-powered feedback on your speaking and stance",
 };
 
 export default function RootLayout({
