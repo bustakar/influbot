@@ -8,7 +8,10 @@
  * @module
  */
 
-import type * as myFunctions from "../myFunctions.js";
+import type * as analysis from "../analysis.js";
+import type * as challenges from "../challenges.js";
+import type * as cloudflare from "../cloudflare.js";
+import type * as videos from "../videos.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +20,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  myFunctions: typeof myFunctions;
+  analysis: typeof analysis;
+  challenges: typeof challenges;
+  cloudflare: typeof cloudflare;
+  videos: typeof videos;
 }>;
 
 /**

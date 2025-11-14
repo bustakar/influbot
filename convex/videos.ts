@@ -20,7 +20,7 @@ async function getCloudflareVideoUrl(
     );
   }
 
-  const response = await ctx.fetch(
+  const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${streamId}`,
     {
       method: "GET",

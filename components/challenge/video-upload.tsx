@@ -30,7 +30,7 @@ export function VideoUpload({
   const createSubmission = useMutation(api.challenges.createVideoSubmission);
   const processUpload = useAction(api.videos.processVideoUpload);
 
-  async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -47,7 +47,7 @@ export function VideoUpload({
     }
 
     setError(null);
-    await uploadVideo(file);
+    void uploadVideo(file);
   }
 
   async function uploadVideo(file: File) {
@@ -131,7 +131,9 @@ export function VideoUpload({
           className="hidden"
         />
         <Button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            fileInputRef.current?.click();
+          }}
           disabled={isUploading}
           className="w-full"
         >

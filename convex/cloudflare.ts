@@ -23,7 +23,7 @@ export const getCloudflareUploadUrl = action({
       );
     }
 
-    const response = await ctx.fetch(
+    const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/direct_upload`,
       {
         method: "POST",

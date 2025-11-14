@@ -146,7 +146,7 @@ export const analyzeVideo = internalAction({
     const prompt = buildAnalysisPrompt(args.customPrompt, args.dayNumber);
 
     // Use Gemini 1.5 Pro which supports video analysis
-    const response = await ctx.fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

@@ -111,7 +111,7 @@ export default function DayPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {hasAnalysis ? (
+              {hasAnalysis && submission.analysisResults ? (
                 <AnalysisResults
                   scores={submission.analysisResults.scores}
                   feedback={submission.analysisResults.feedback}
