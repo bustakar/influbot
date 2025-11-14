@@ -28,8 +28,7 @@ export function VideoUpload({
 
   const getUploadUrl = useAction(api.cloudflare.getCloudflareUploadUrl);
   const createSubmission = useMutation(api.challenges.createVideoSubmission);
-  const analyzeVideo = useAction(api.analysis.analyzeVideo);
-  const updateAnalysis = useMutation(api.challenges.updateSubmissionAnalysis);
+  const processUpload = useAction(api.videos.processVideoUpload);
 
   async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -86,34 +85,19 @@ export function VideoUpload({
         xhr.send(file);
       });
 
-      // Step 3: Wait a bit for Cloudflare to process the video
-      // In production, you'd use webhooks, but for now we'll poll
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Step 4: Create submission record
+      // Step 3: Create submission record
       const submissionId = await createSubmission({
         challengeId,
         dayNumber,
         cloudflareStreamId: uploadId,
       });
 
-      // Step 5: Get video URL from Cloudflare and analyze
-      // Note: In production, you'd get the video URL from Cloudflare API
-      // For now, we'll construct it (this may need adjustment based on Cloudflare's actual API)
-      const videoUrl = `https://customer-${process.env.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT_ID}.cloudflarestream.com/${uploadId}/manifest/video.m3u8`;
-      
-      // For now, we'll use a placeholder URL. In production, fetch the actual video URL from Cloudflare
-      // This is a simplified approach - you may need to fetch the video URL from Cloudflare's API first
-      const analysisResults = await analyzeVideo({
-        videoUrl: `https://videodelivery.net/${uploadId}/manifest/video.m3u8`,
+      // Step 4: Process video upload and trigger analysis (runs in background)
+      await processUpload({
+        submissionId,
+        cloudflareStreamId: uploadId,
         customPrompt,
         dayNumber,
-      });
-
-      // Step 6: Update submission with analysis results
-      await updateAnalysis({
-        submissionId,
-        analysisResults,
       });
 
       setUploadProgress(100);

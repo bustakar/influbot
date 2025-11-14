@@ -1,6 +1,6 @@
 "use node";
 
-import { action } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 
 interface AnalysisResponse {
@@ -120,7 +120,7 @@ Respond in JSON format:
 /**
  * Analyze video using OpenRouter (Gemini model) with custom prompt.
  */
-export const analyzeVideo = action({
+export const analyzeVideo = internalAction({
   args: {
     videoUrl: v.string(),
     customPrompt: v.string(),

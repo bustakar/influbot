@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -214,7 +214,7 @@ export const createVideoSubmission = mutation({
 /**
  * Update submission with analysis results.
  */
-export const updateSubmissionAnalysis = mutation({
+export const updateSubmissionAnalysis = internalMutation({
   args: {
     submissionId: v.id("videoSubmissions"),
     analysisResults: v.object({
