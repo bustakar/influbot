@@ -70,18 +70,52 @@ export function VideoUpload({
         });
 
         xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
+          // Cloudflare Stream direct upload returns 200 on success
+          // But we should also check the response body
+          if (xhr.status === 200) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              // Cloudflare returns { result: { uid: "...", ... } } on success
+              if (response.result && response.result.uid) {
+                resolve();
+              } else {
+                reject(
+                  new Error(
+                    `Upload failed: ${xhr.responseText || "Unknown error"}`
+                  )
+                );
+              }
+            } catch (e) {
+              // If response is not JSON, still resolve if status is 200
+              // Some Cloudflare endpoints return empty body on success
+              resolve();
+            }
           } else {
-            reject(new Error(`Upload failed with status ${xhr.status}`));
+            let errorMessage = `Upload failed with status ${xhr.status}`;
+            try {
+              const errorResponse = JSON.parse(xhr.responseText);
+              if (errorResponse.errors && errorResponse.errors.length > 0) {
+                errorMessage = errorResponse.errors[0].message || errorMessage;
+              } else if (errorResponse.message) {
+                errorMessage = errorResponse.message;
+              }
+            } catch (e) {
+              // Use default error message
+            }
+            reject(new Error(errorMessage));
           }
         });
 
         xhr.addEventListener("error", () => {
-          reject(new Error("Upload failed"));
+          reject(new Error("Network error during upload"));
+        });
+
+        xhr.addEventListener("abort", () => {
+          reject(new Error("Upload was cancelled"));
         });
 
         xhr.open("POST", uploadUrl);
+        // Don't set Content-Type header - let browser set it with boundary for multipart
         xhr.send(file);
       });
 
