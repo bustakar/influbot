@@ -1,15 +1,21 @@
-"use client";
+'use client';
 
-import { useState, useRef } from "react";
-import { useAction, useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import { Id } from "@/convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
+import { useAction, useMutation } from 'convex/react';
+import { useRef, useState } from 'react';
 
 interface VideoUploadProps {
-  challengeId: Id<"challenges">;
+  challengeId: Id<'challenges'>;
   dayNumber: number;
   customPrompt: string;
   onUploadComplete?: () => void;
@@ -35,14 +41,14 @@ export function VideoUpload({
     if (!file) return;
 
     // Validate file type
-    if (!file.type.startsWith("video/")) {
-      setError("Please select a video file");
+    if (!file.type.startsWith('video/')) {
+      setError('Please select a video file');
       return;
     }
 
     // Validate file size (max 500MB)
     if (file.size > 500 * 1024 * 1024) {
-      setError("Video file must be less than 500MB");
+      setError('Video file must be less than 500MB');
       return;
     }
 
@@ -54,44 +60,73 @@ export function VideoUpload({
     setIsUploading(true);
     setUploadProgress(0);
 
+    console.log('[VideoUpload] Starting upload process', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+    });
+
     try {
       // Step 1: Get Cloudflare upload URL
+      console.log('[VideoUpload] Step 1: Requesting upload URL from Cloudflare...');
       const { uploadUrl, uploadId } = await getUploadUrl({});
+      console.log('[VideoUpload] Got upload URL:', {
+        uploadUrl: uploadUrl.substring(0, 100) + '...',
+        uploadId,
+      });
 
       // Step 2: Upload video directly to Cloudflare
+      console.log('[VideoUpload] Step 2: Starting file upload to Cloudflare...');
       const xhr = new XMLHttpRequest();
 
       const actualStreamId = await new Promise<string>((resolve, reject) => {
-        xhr.upload.addEventListener("progress", (e) => {
+        xhr.upload.addEventListener('progress', (e) => {
           if (e.lengthComputable) {
             const percentComplete = (e.loaded / e.total) * 100;
             setUploadProgress(percentComplete);
+            if (percentComplete % 25 === 0) {
+              console.log(`[VideoUpload] Upload progress: ${Math.round(percentComplete)}%`);
+            }
           }
         });
 
-        xhr.addEventListener("load", () => {
+        xhr.addEventListener('load', () => {
+          console.log('[VideoUpload] Upload completed, response received:', {
+            status: xhr.status,
+            statusText: xhr.statusText,
+            responseHeaders: xhr.getAllResponseHeaders(),
+            responseText: xhr.responseText.substring(0, 500),
+            responseType: xhr.responseType,
+          });
+
           // Cloudflare Stream direct upload returns 200 on success
           // The response contains the actual video ID
           if (xhr.status === 200) {
             try {
               const response = JSON.parse(xhr.responseText);
+              console.log('[VideoUpload] Parsed response:', response);
               // Cloudflare returns { result: { uid: "...", ... } } on success
               if (response.result && response.result.uid) {
+                console.log('[VideoUpload] Upload successful, got stream ID:', response.result.uid);
                 // Use the uid from the upload response, not the pre-upload uid
                 resolve(response.result.uid);
               } else {
+                console.error('[VideoUpload] Response missing result.uid:', response);
                 reject(
                   new Error(
-                    `Upload failed: ${xhr.responseText || "Unknown error"}`
+                    `Upload failed: ${xhr.responseText || 'Unknown error'}`
                   )
                 );
               }
             } catch (e) {
+              console.error('[VideoUpload] Failed to parse response as JSON:', e);
               // If response is not JSON, check if it's empty (some endpoints do this)
-              if (xhr.responseText.trim() === "") {
+              if (xhr.responseText.trim() === '') {
+                console.log('[VideoUpload] Empty response, using uploadId:', uploadId);
                 // Empty response might mean success, use the uploadId we got earlier
                 resolve(uploadId);
               } else {
+                console.error('[VideoUpload] Non-empty non-JSON response:', xhr.responseText);
                 reject(
                   new Error(
                     `Upload failed: Invalid response - ${xhr.responseText}`
@@ -100,42 +135,65 @@ export function VideoUpload({
               }
             }
           } else {
+            console.error('[VideoUpload] Upload failed with non-200 status:', {
+              status: xhr.status,
+              statusText: xhr.statusText,
+              responseText: xhr.responseText,
+            });
             let errorMessage = `Upload failed with status ${xhr.status}`;
             try {
               const errorResponse = JSON.parse(xhr.responseText);
+              console.error('[VideoUpload] Error response:', errorResponse);
               if (errorResponse.errors && errorResponse.errors.length > 0) {
                 errorMessage = errorResponse.errors[0].message || errorMessage;
+                console.error('[VideoUpload] Error details:', errorResponse.errors);
               } else if (errorResponse.message) {
                 errorMessage = errorResponse.message;
               }
             } catch (e) {
+              console.error('[VideoUpload] Failed to parse error response:', e);
               // Use default error message
             }
             reject(new Error(errorMessage));
           }
         });
 
-        xhr.addEventListener("error", () => {
-          reject(new Error("Network error during upload"));
+        xhr.addEventListener('error', (event) => {
+          console.error('[VideoUpload] Network error during upload:', event);
+          reject(new Error('Network error during upload'));
         });
 
-        xhr.addEventListener("abort", () => {
-          reject(new Error("Upload was cancelled"));
+        xhr.addEventListener('abort', () => {
+          console.warn('[VideoUpload] Upload was aborted');
+          reject(new Error('Upload was cancelled'));
         });
 
-        xhr.open("POST", uploadUrl);
+        xhr.addEventListener('loadstart', () => {
+          console.log('[VideoUpload] Upload started');
+        });
+
+        xhr.addEventListener('loadend', () => {
+          console.log('[VideoUpload] Upload loadend event fired');
+        });
+
+        console.log('[VideoUpload] Opening POST request to:', uploadUrl.substring(0, 100) + '...');
+        xhr.open('POST', uploadUrl);
         // Cloudflare Stream direct upload expects the raw file as the body
         // Don't set Content-Type - let the browser handle it
+        console.log('[VideoUpload] Sending file...');
         xhr.send(file);
       });
 
+      console.log('[VideoUpload] Step 3: Creating submission record with stream ID:', actualStreamId);
       // Step 3: Create submission record using the actual stream ID from upload
       const submissionId = await createSubmission({
         challengeId,
         dayNumber,
         cloudflareStreamId: actualStreamId,
       });
+      console.log('[VideoUpload] Submission created:', submissionId);
 
+      console.log('[VideoUpload] Step 4: Triggering video processing and analysis...');
       // Step 4: Process video upload and trigger analysis (runs in background)
       await processUpload({
         submissionId,
@@ -143,14 +201,19 @@ export function VideoUpload({
         customPrompt,
         dayNumber,
       });
+      console.log('[VideoUpload] Processing triggered successfully');
 
       setUploadProgress(100);
+      console.log('[VideoUpload] Upload process completed successfully');
       onUploadComplete?.();
     } catch (err) {
-      console.error("Upload error:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to upload video"
-      );
+      console.error('[VideoUpload] Upload error caught:', err);
+      console.error('[VideoUpload] Error details:', {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        name: err instanceof Error ? err.name : undefined,
+      });
+      setError(err instanceof Error ? err.message : 'Failed to upload video');
       setUploadProgress(0);
     } finally {
       setIsUploading(false);
@@ -181,7 +244,7 @@ export function VideoUpload({
           disabled={isUploading}
           className="w-full"
         >
-          {isUploading ? "Uploading..." : "Select Video File"}
+          {isUploading ? 'Uploading...' : 'Select Video File'}
         </Button>
 
         {isUploading && (
@@ -202,4 +265,3 @@ export function VideoUpload({
     </Card>
   );
 }
-
