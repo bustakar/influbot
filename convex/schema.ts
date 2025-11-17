@@ -1,12 +1,19 @@
-import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { defineSchema, defineTable } from 'convex/server';
+import { v } from 'convex/values';
 
-// The schema is entirely optional.
-// You can delete this file (schema.ts) and the
-// app will continue to work.
-// The schema provides more precise TypeScript types.
 export default defineSchema({
-  numbers: defineTable({
-    value: v.number(),
-  }),
+  videos: defineTable({
+    userId: v.string(),
+    cloudflareUid: v.string(),
+    state: v.union(
+      v.literal('upload_url_generated'),
+      v.literal('video_uploaded'),
+      v.literal('video_processed'),
+      v.literal('video_sent_to_ai'),
+      v.literal('video_analysed')
+    ),
+    errorMessage: v.optional(v.string()),
+  })
+    .index('by_userId', ['userId'])
+    .index('by_cloudflareUid', ['cloudflareUid']),
 });

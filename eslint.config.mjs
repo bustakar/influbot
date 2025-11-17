@@ -14,7 +14,7 @@ export default defineConfig([
       'public/',
       '.vscode/',
       'next-env.d.ts',
-      'src/convex/_generated/**',
+      'src/_generated/**',
     ],
   },
   {
