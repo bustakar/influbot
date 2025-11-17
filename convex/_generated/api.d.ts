@@ -8,23 +8,13 @@
  * @module
  */
 
-import type * as analysis from "../analysis.js";
-import type * as challenges from "../challenges.js";
-import type * as cloudflare from "../cloudflare.js";
-import type * as videos from "../videos.js";
-
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{
-  analysis: typeof analysis;
-  challenges: typeof challenges;
-  cloudflare: typeof cloudflare;
-  videos: typeof videos;
-}>;
+declare const fullApi: ApiFromModules<{}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
