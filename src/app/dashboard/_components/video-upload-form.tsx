@@ -4,6 +4,7 @@ import { useForm } from '@tanstack/react-form';
 import { useAction, useMutation } from 'convex/react';
 import * as React from 'react';
 import { toast } from 'sonner';
+import * as tus from 'tus-js-client';
 import * as z from 'zod';
 
 import { Button } from '@/components/ui/button';
@@ -42,8 +43,10 @@ const formSchema = z.object({
 export function VideoUploadForm() {
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [isUploading, setIsUploading] = React.useState(false);
-  const generateUploadUrl = useAction(api.videos.generateCloudflareUploadUrl);
+  const generateTusConfig = useAction(api.videos.generateCloudflareTusConfig);
+  const getApiToken = useAction(api.videos.getCloudflareApiToken);
   const markVideoUploaded = useMutation(api.videoMutations.markVideoUploaded);
+  const deleteVideo = useAction(api.videos.deleteVideo);
 
   const form = useForm({
     defaultValues: {
@@ -60,16 +63,29 @@ export function VideoUploadForm() {
       setIsUploading(true);
       setUploadProgress(0);
 
+      let uid: string | null = null;
       try {
-        // Get upload URL from Convex (this also creates the video record)
-        const { uploadURL, uid } = await generateUploadUrl();
+        // Get tus config and API token
+        const [tusConfig, apiToken] = await Promise.all([
+          generateTusConfig(),
+          getApiToken(),
+        ]);
+        uid = tusConfig.videoUid;
 
-        // Upload file to Cloudflare Stream with progress tracking
-        await uploadFileWithProgress(value.video, uploadURL, (progress) => {
-          setUploadProgress(progress);
-        });
+        // Upload file using tus protocol (resumable uploads for large files)
+        await uploadFileWithTus(
+          value.video,
+          tusConfig.tusEndpoint,
+          apiToken,
+          (progress) => {
+            setUploadProgress(progress);
+          }
+        );
 
         // Mark video as uploaded in database
+        if (!uid) {
+          throw new Error('Video UID not available');
+        }
         await markVideoUploaded({ cloudflareUid: uid });
 
         toast.success('Video uploaded successfully!', {
@@ -82,6 +98,16 @@ export function VideoUploadForm() {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : 'Upload failed';
+
+        // Clean up: delete video from Cloudflare and Convex if upload failed
+        if (uid) {
+          try {
+            await deleteVideo({ cloudflareUid: uid });
+          } catch (deleteError) {
+            console.error('Failed to cleanup failed upload:', deleteError);
+          }
+        }
+
         toast.error('Upload failed', {
           description: errorMessage,
         });
@@ -193,44 +219,60 @@ export function VideoUploadForm() {
 }
 
 /**
- * Upload file to Cloudflare Stream with progress tracking using XMLHttpRequest
+ * Upload file to Cloudflare Stream using tus protocol (resumable uploads).
+ * Recommended for files over 200MB. Handles large files with chunked uploads.
  */
-function uploadFileWithProgress(
+function uploadFileWithTus(
   file: File,
-  uploadURL: string,
+  tusEndpoint: string,
+  apiToken: string,
   onProgress: (progress: number) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
+    // Determine chunk size based on file size
+    // Minimum: 5MB, Recommended: 50MB for reliable connections
+    // Must be divisible by 256 KiB (262144 bytes)
+    const fileSize = file.size;
+    const minChunkSize = 5 * 1024 * 1024; // 5MB
+    const recommendedChunkSize = 50 * 1024 * 1024; // 50MB
+    const maxChunkSize = 200 * 1024 * 1024; // 200MB
+    const chunkSizeDivisor = 256 * 1024; // 256 KiB
 
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        const progress = Math.round((e.loaded / e.total) * 100);
+    // Use recommended chunk size, but ensure it's divisible by 256 KiB
+    let chunkSize = Math.min(recommendedChunkSize, fileSize);
+    chunkSize = Math.max(chunkSize, minChunkSize);
+    // Round to nearest multiple of 256 KiB
+    chunkSize = Math.floor(chunkSize / chunkSizeDivisor) * chunkSizeDivisor;
+    chunkSize = Math.min(chunkSize, maxChunkSize);
+
+    const upload = new tus.Upload(file, {
+      endpoint: tusEndpoint,
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+      },
+      chunkSize: chunkSize,
+      retryDelays: [0, 3000, 5000, 10000, 20000], // Retry delays in milliseconds
+      metadata: {
+        name: file.name,
+        filetype: file.type,
+      },
+      uploadSize: file.size,
+      onError: (error) => {
+        reject(
+          new Error(
+            `Upload failed: ${error.message || 'Unknown error occurred'}`
+          )
+        );
+      },
+      onProgress: (bytesUploaded, bytesTotal) => {
+        const progress = Math.round((bytesUploaded / bytesTotal) * 100);
         onProgress(progress);
-      }
-    });
-
-    xhr.addEventListener('load', () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
+      },
+      onSuccess: () => {
         resolve();
-      } else {
-        reject(new Error(`Upload failed with status ${xhr.status}`));
-      }
+      },
     });
 
-    xhr.addEventListener('error', () => {
-      reject(new Error('Upload failed due to network error'));
-    });
-
-    xhr.addEventListener('abort', () => {
-      reject(new Error('Upload was aborted'));
-    });
-
-    xhr.open('POST', uploadURL);
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    xhr.send(formData);
+    upload.start();
   });
 }

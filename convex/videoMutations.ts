@@ -46,6 +46,7 @@ export const markVideoUploaded = mutation({
 
     await ctx.db.patch(video._id, {
       state: 'video_uploaded',
+      pollingStartTime: Date.now(), // Track when polling started
     });
 
     // Start polling Cloudflare Stream API to check video status
@@ -70,8 +71,10 @@ export const updateVideoState = internalMutation({
       v.literal('video_processed'),
       v.literal('video_sent_to_ai'),
       v.literal('video_analysed'),
+      v.literal('failed_upload'),
       v.literal('failed_compression'),
-      v.literal('failed_analysis')
+      v.literal('failed_analysis'),
+      v.literal('processing_timeout')
     ),
     errorMessage: v.optional(v.string()),
   },
@@ -127,6 +130,113 @@ export const updateVideoWithDownsizedUrl = internalMutation({
 
     await ctx.db.patch(video._id, {
       downsizedVideoUrl: args.downsizedVideoUrl,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Mark video upload as failed.
+ */
+export const markVideoUploadFailed = mutation({
+  args: {
+    cloudflareUid: v.string(),
+    errorMessage: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const video = await ctx.db
+      .query('videos')
+      .withIndex('by_cloudflareUid', (q) =>
+        q.eq('cloudflareUid', args.cloudflareUid)
+      )
+      .first();
+
+    if (!video) {
+      throw new Error(
+        `Video with cloudflareUid ${args.cloudflareUid} not found`
+      );
+    }
+
+    await ctx.db.patch(video._id, {
+      state: 'failed_upload',
+      errorMessage: args.errorMessage,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Update polling start time (used when manually retrying status check).
+ */
+export const updatePollingStartTime = mutation({
+  args: {
+    cloudflareUid: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const video = await ctx.db
+      .query('videos')
+      .withIndex('by_cloudflareUid', (q) =>
+        q.eq('cloudflareUid', args.cloudflareUid)
+      )
+      .first();
+
+    if (!video) {
+      throw new Error(
+        `Video with cloudflareUid ${args.cloudflareUid} not found`
+      );
+    }
+
+    await ctx.db.patch(video._id, {
+      pollingStartTime: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Delete a video record from the database.
+ */
+export const deleteVideo = mutation({
+  args: {
+    videoId: v.id('videos'),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.videoId);
+    return null;
+  },
+});
+
+/**
+ * Update Cloudflare UID for a video (used when retrying upload).
+ */
+export const updateCloudflareUid = mutation({
+  args: {
+    oldCloudflareUid: v.string(),
+    newCloudflareUid: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const video = await ctx.db
+      .query('videos')
+      .withIndex('by_cloudflareUid', (q) =>
+        q.eq('cloudflareUid', args.oldCloudflareUid)
+      )
+      .first();
+
+    if (!video) {
+      throw new Error(
+        `Video with cloudflareUid ${args.oldCloudflareUid} not found`
+      );
+    }
+
+    await ctx.db.patch(video._id, {
+      cloudflareUid: args.newCloudflareUid,
     });
 
     return null;

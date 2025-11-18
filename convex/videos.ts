@@ -7,14 +7,15 @@ import { Id } from './_generated/dataModel';
 import { action, internalAction } from './_generated/server';
 
 /**
- * Generate a Cloudflare Stream direct upload URL for video uploads.
- * Returns the upload URL and video UID.
+ * Generate Cloudflare Stream tus upload configuration using Direct Creator Upload.
+ * This returns the video ID upfront and provides the tus endpoint for resumable uploads.
+ * Recommended for files over 200MB.
  */
-export const generateCloudflareUploadUrl = action({
+export const generateCloudflareTusConfig = action({
   args: {},
   returns: v.object({
-    uploadURL: v.string(),
-    uid: v.string(),
+    tusEndpoint: v.string(),
+    videoUid: v.string(),
     videoId: v.id('videos'),
   }),
   handler: async (ctx) => {
@@ -33,6 +34,8 @@ export const generateCloudflareUploadUrl = action({
       );
     }
 
+    // Use Direct Creator Upload to get video ID upfront
+    // This API returns both the video ID and tus endpoint
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/direct_upload`,
       {
@@ -61,6 +64,9 @@ export const generateCloudflareUploadUrl = action({
     }
 
     const uid = data.result.uid;
+    // The tus endpoint is the same as the direct upload endpoint
+    // But we'll use the tus protocol endpoint instead
+    const tusEndpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream`;
 
     // Create video record in database
     const videoId: Id<'videos'> = await ctx.runMutation(
@@ -72,10 +78,35 @@ export const generateCloudflareUploadUrl = action({
     );
 
     return {
-      uploadURL: data.result.uploadURL,
-      uid,
+      tusEndpoint,
+      videoUid: uid,
       videoId,
     };
+  },
+});
+
+/**
+ * Get Cloudflare API token for tus uploads.
+ * Note: This token should be scoped to only allow Stream uploads for security.
+ */
+export const getCloudflareApiToken = action({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
+    }
+
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    if (!apiToken) {
+      throw new Error(
+        'Cloudflare API token not configured. Please set CLOUDFLARE_API_TOKEN environment variable.'
+      );
+    }
+
+    // Return the API token (should be scoped to Stream uploads only)
+    return apiToken;
   },
 });
 
@@ -96,6 +127,31 @@ export const checkVideoStatus = internalAction({
       throw new Error(
         'Cloudflare credentials not configured. Please set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN environment variables.'
       );
+    }
+
+    // Get video record to check polling start time
+    const videoRecord = await ctx.runQuery(
+      api.videoQueries.getVideoByCloudflareUid,
+      {
+        cloudflareUid: args.cloudflareUid,
+      }
+    );
+
+    // Check for timeout (30 minutes = 1800 seconds)
+    const POLLING_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+    const now = Date.now();
+    if (videoRecord?.pollingStartTime) {
+      const elapsed = now - videoRecord.pollingStartTime;
+      if (elapsed > POLLING_TIMEOUT_MS) {
+        // Timeout reached - stop polling and mark as timeout
+        await ctx.runMutation(internal.videoMutations.updateVideoState, {
+          cloudflareUid: args.cloudflareUid,
+          state: 'processing_timeout',
+          errorMessage:
+            'Video processing timed out after 30 minutes. Cloudflare may be experiencing issues. Please check status manually.',
+        });
+        return null;
+      }
     }
 
     // Get video status from Cloudflare Stream API
@@ -613,5 +669,227 @@ export const retryAnalysis = action({
     });
 
     return null;
+  },
+});
+
+/**
+ * Manually check video processing status.
+ * Can be called from UI to retry checking status after timeout or to check current status.
+ */
+export const checkVideoStatusManually = action({
+  args: {
+    cloudflareUid: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Get user ID from auth
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
+    }
+
+    // Verify video exists and belongs to user
+    const video = await ctx.runQuery(api.videoQueries.getVideoByCloudflareUid, {
+      cloudflareUid: args.cloudflareUid,
+    });
+
+    if (!video) {
+      throw new Error('Video not found');
+    }
+
+    if (video.userId !== identity.subject) {
+      throw new Error('Unauthorized');
+    }
+
+    // Reset polling start time and state if it was timed out
+    if (video.state === 'processing_timeout') {
+      await ctx.runMutation(internal.videoMutations.updateVideoState, {
+        cloudflareUid: args.cloudflareUid,
+        state: 'video_uploaded',
+      });
+      // Update polling start time via a query to get the video, then update
+      const videoRecord = await ctx.runQuery(
+        api.videoQueries.getVideoByCloudflareUid,
+        {
+          cloudflareUid: args.cloudflareUid,
+        }
+      );
+      if (videoRecord) {
+        await ctx.runMutation(api.videoMutations.updatePollingStartTime, {
+          cloudflareUid: args.cloudflareUid,
+        });
+      }
+    }
+
+    // Trigger status check immediately
+    await ctx.scheduler.runAfter(0, internal.videos.checkVideoStatus, {
+      cloudflareUid: args.cloudflareUid,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Delete a video from Cloudflare Stream and Convex database.
+ * Used to clean up failed uploads.
+ */
+export const deleteVideo = action({
+  args: {
+    cloudflareUid: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Get user ID from auth
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
+    }
+
+    // Verify video exists and belongs to user
+    const video = await ctx.runQuery(api.videoQueries.getVideoByCloudflareUid, {
+      cloudflareUid: args.cloudflareUid,
+    });
+
+    if (!video) {
+      // Video doesn't exist in Convex, but try to delete from Cloudflare anyway
+      console.warn(`Video ${args.cloudflareUid} not found in Convex`);
+    } else {
+      if (video.userId !== identity.subject) {
+        throw new Error('Unauthorized');
+      }
+
+      // Delete from Convex database
+      await ctx.runMutation(api.videoMutations.deleteVideo, {
+        videoId: video._id,
+      });
+    }
+
+    // Delete from Cloudflare Stream (ignore errors if video doesn't exist)
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+    if (accountId && apiToken) {
+      try {
+        const deleteResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${args.cloudflareUid}`,
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${apiToken}`,
+            },
+          }
+        );
+
+        if (!deleteResponse.ok) {
+          // Log but don't throw - video might not exist in Cloudflare
+          const errorText = await deleteResponse.text();
+          console.warn(
+            `Failed to delete video from Cloudflare: ${deleteResponse.status} ${errorText}`
+          );
+        }
+      } catch (error) {
+        // Log but don't throw - this is cleanup
+        console.warn('Error deleting video from Cloudflare:', error);
+      }
+    }
+
+    return null;
+  },
+});
+
+/**
+ * Retry upload for a video that failed upload.
+ * Generates a new upload URL and resets the state.
+ * Note: User will need to upload the file again using the new URL.
+ */
+export const retryUpload = action({
+  args: {
+    cloudflareUid: v.string(),
+  },
+  returns: v.object({
+    uploadURL: v.string(),
+    uid: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    // Get user ID from auth
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
+    }
+
+    // Verify video exists and belongs to user
+    const video = await ctx.runQuery(api.videoQueries.getVideoByCloudflareUid, {
+      cloudflareUid: args.cloudflareUid,
+    });
+
+    if (!video) {
+      throw new Error('Video not found');
+    }
+
+    if (video.userId !== identity.subject) {
+      throw new Error('Unauthorized');
+    }
+
+    if (video.state !== 'failed_upload') {
+      throw new Error('Video is not in failed_upload state');
+    }
+
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+    if (!accountId || !apiToken) {
+      throw new Error(
+        'Cloudflare credentials not configured. Please set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN environment variables.'
+      );
+    }
+
+    // Generate a new upload URL
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/direct_upload`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          maxDurationSeconds: 3600, // 1 hour max
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Failed to generate upload URL: ${response.status} ${errorText}`
+      );
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error('Cloudflare API returned unsuccessful response');
+    }
+
+    const newUid = data.result.uid;
+
+    // Update video record with new UID and reset state
+    await ctx.runMutation(internal.videoMutations.updateVideoState, {
+      cloudflareUid: args.cloudflareUid,
+      state: 'upload_url_generated',
+    });
+
+    // Update cloudflareUid to the new one
+    // We need to do this via a mutation
+    await ctx.runMutation(api.videoMutations.updateCloudflareUid, {
+      oldCloudflareUid: args.cloudflareUid,
+      newCloudflareUid: newUid,
+    });
+
+    return {
+      uploadURL: data.result.uploadURL,
+      uid: newUid,
+    };
   },
 });
