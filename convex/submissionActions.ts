@@ -1,7 +1,9 @@
+'use node';
+
 import { v } from 'convex/values';
 
-import { internal } from './_generated/api';
-import { internalAction } from './_generated/server';
+import { api, internal } from './_generated/api';
+import { action, internalAction } from './_generated/server';
 
 /**
  * Generate a topic idea for a submission using Gemini Flash 2.0 via OpenRouter.
@@ -9,7 +11,7 @@ import { internalAction } from './_generated/server';
  */
 export const generateTopicForSubmission = internalAction({
   args: {
-    submissionId: v.id('videos'),
+    submissionId: v.id('submissions'),
     challengeId: v.id('challenges'),
     previousTopics: v.array(v.string()),
     desiredImprovements: v.array(v.string()),
@@ -58,14 +60,14 @@ export const generateTopicForSubmission = internalAction({
             'X-Title': 'Influbot Topic Generation',
           },
           body: JSON.stringify({
-            model: 'openai/gpt-5-nano',
+            model: 'google/gemini-2.0-flash-001',
             messages: [
               {
                 role: 'user',
                 content: topicPrompt,
               },
             ],
-            max_tokens: 200,
+            // max_tokens: 200,
           }),
         }
       );
@@ -82,14 +84,19 @@ export const generateTopicForSubmission = internalAction({
       const topic =
         openRouterData.choices?.[0]?.message?.content ||
         openRouterData.choices?.[0]?.text ||
-        'Topic generation failed';
+        null;
 
-      // Update video record with the generated topic
+      if (!topic || topic.trim() === '') {
+        throw new Error('No topic returned from API');
+      }
+
+      // Update submission with the generated topic (clear any previous errors)
       await ctx.runMutation(
         internal.submissionMutations.updateSubmissionTopic,
         {
           submissionId: args.submissionId,
           topic: topic.trim(),
+          topicGenerationError: undefined, // Clear error on success
         }
       );
 
@@ -102,9 +109,91 @@ export const generateTopicForSubmission = internalAction({
           ? error.message
           : 'Unknown topic generation error';
       console.error('Failed to generate topic:', errorMessage);
+
+      // Update submission with error (but don't set topic)
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionTopic,
+        {
+          submissionId: args.submissionId,
+          topic: 'Topic generation failed. Please create your own topic.',
+          topicGenerationError: errorMessage,
+        }
+      );
+
       return {
         topic: 'Topic generation failed. Please create your own topic.',
       };
     }
+  },
+});
+
+/**
+ * Retry topic generation for a submission.
+ * This action can be called from the UI to retry topic generation.
+ */
+export const retryTopicGeneration = action({
+  args: {
+    submissionId: v.id('submissions'),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Get user ID from auth
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
+    }
+
+    // Get submission to verify ownership and get challengeId
+    const submission = await ctx.runQuery(api.submissions.getById, {
+      submissionId: args.submissionId,
+    });
+
+    if (!submission) {
+      throw new Error('Submission not found');
+    }
+
+    if (submission.userId !== identity.subject) {
+      throw new Error('Unauthorized');
+    }
+
+    // Get challenge details
+    const challenge = await ctx.runQuery(api.challenges.getById, {
+      challengeId: submission.challengeId,
+    });
+
+    if (!challenge) {
+      throw new Error('Challenge not found');
+    }
+
+    // Get previous topics from other submissions in this challenge
+    // We'll fetch the challenge which includes submission slots with topics
+    const previousTopics: string[] = [];
+    if (challenge.submissionSlots) {
+      for (const slot of challenge.submissionSlots) {
+        if (
+          slot.submission &&
+          slot.submission.topic &&
+          slot.submission._id !== args.submissionId &&
+          !slot.submission.topicGenerationError
+        ) {
+          previousTopics.push(slot.submission.topic);
+        }
+      }
+    }
+
+    // Trigger topic generation
+    await ctx.scheduler.runAfter(
+      0,
+      internal.submissionActions.generateTopicForSubmission,
+      {
+        submissionId: args.submissionId,
+        challengeId: submission.challengeId,
+        previousTopics,
+        desiredImprovements: challenge.desiredImprovements,
+        specifyPrompt: challenge.specifyPrompt,
+      }
+    );
+
+    return null;
   },
 });

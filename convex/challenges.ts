@@ -51,9 +51,10 @@ export const getById = query({
           position: v.number(),
           submission: v.union(
             v.object({
-              _id: v.id('videos'),
+              _id: v.id('submissions'),
               state: videoStateValidator,
               topic: v.optional(v.string()),
+              topicGenerationError: v.optional(v.string()),
               aiAnalysis: v.optional(v.string()),
               _creationTime: v.number(),
             }),
@@ -83,7 +84,7 @@ export const getById = query({
     }
 
     const submissions = await ctx.db
-      .query('videos')
+      .query('submissions')
       .withIndex('by_challengeId', (q) => q.eq('challengeId', args.challengeId))
       .order('asc')
       .collect();
@@ -112,7 +113,8 @@ export const getById = query({
                 _id: submission._id,
                 state: submission.state,
                 topic: submission.topic,
-                aiAnalysis: submission.aiAnalysis,
+                topicGenerationError: submission.topicGenerationError,
+                analysisResult: submission.analysisResult,
                 _creationTime: submission._creationTime,
               }
             : null,

@@ -18,6 +18,18 @@ export const videoStateValidator = v.union(
 
 export type VideoState = Infer<typeof videoStateValidator>;
 
+export const submissionValidator = v.object({
+  userId: v.string(),
+  challengeId: v.id('challenges'),
+  state: videoStateValidator,
+  errorMessage: v.optional(v.string()),
+  topic: v.optional(v.string()),
+  topicGenerationError: v.optional(v.string()),
+  cloudflareUploadUrl: v.optional(v.string()),
+  downsizedDownloadUrl: v.optional(v.string()),
+  analysisResult: v.optional(v.string()),
+});
+
 export const challengeValidator = v.object({
   userId: v.string(),
   title: v.string(),
@@ -42,8 +54,16 @@ export default defineSchema({
     .index('by_userId', ['userId'])
     .index('by_cloudflareUid', ['cloudflareUid'])
     .index('by_challengeId', ['challengeId']),
+  submissions: defineTable(submissionValidator)
+    .index('by_userId', ['userId'])
+    .index('by_challengeId', ['challengeId'])
+    .index('by_state', ['state']),
   challenges: defineTable(challengeValidator).index('by_userId', ['userId']),
 });
+
+export type Submission = Infer<typeof submissionValidator> & {
+  _id: Id<'submissions'>;
+};
 
 export type Challenge = Infer<typeof challengeValidator> & {
   _id: Id<'challenges'>;

@@ -15,17 +15,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 
 import { api } from '../../../../convex/_generated/api';
-
-type VideoState =
-  | 'upload_url_generated'
-  | 'video_uploaded'
-  | 'video_processed'
-  | 'video_sent_to_ai'
-  | 'video_analysed'
-  | 'failed_upload'
-  | 'failed_compression'
-  | 'failed_analysis'
-  | 'processing_timeout';
+import { VideoState } from '../../../../convex/schema';
 
 type Video = {
   _id: string;
@@ -38,6 +28,8 @@ type Video = {
 
 function getStateLabel(state: VideoState): string {
   switch (state) {
+    case 'initial':
+      return 'Ready to Upload';
     case 'upload_url_generated':
       return 'Upload URL Generated';
     case 'video_uploaded':

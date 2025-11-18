@@ -12,6 +12,7 @@ import type * as challengeMutations from "../challengeMutations.js";
 import type * as challenges from "../challenges.js";
 import type * as submissionActions from "../submissionActions.js";
 import type * as submissionMutations from "../submissionMutations.js";
+import type * as submissions from "../submissions.js";
 import type * as videoMutations from "../videoMutations.js";
 import type * as videoQueries from "../videoQueries.js";
 import type * as videos from "../videos.js";
@@ -27,6 +28,7 @@ declare const fullApi: ApiFromModules<{
   challenges: typeof challenges;
   submissionActions: typeof submissionActions;
   submissionMutations: typeof submissionMutations;
+  submissions: typeof submissions;
   videoMutations: typeof videoMutations;
   videoQueries: typeof videoQueries;
   videos: typeof videos;

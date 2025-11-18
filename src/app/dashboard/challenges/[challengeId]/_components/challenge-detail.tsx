@@ -72,10 +72,10 @@ type SubmissionCardProps = {
   position: number;
   totalRequired: number;
   submission: {
-    _id: Id<'videos'>;
+    _id: Id<'submissions'>;
     state: VideoState;
     topic?: string;
-    aiAnalysis?: string;
+    analysisResult?: string;
     _creationTime: number;
   } | null;
   isLocked: boolean;
@@ -140,11 +140,11 @@ const SubmissionCard = ({
         ) : submission ? (
           <div className="space-y-3">
             {submission.topic && <p className="text-sm">{submission.topic}</p>}
-            {submission.aiAnalysis && (
+            {submission.analysisResult && (
               <div className="mt-4 p-4 bg-muted rounded-lg">
                 <p className="text-sm font-semibold mb-2">AI Analysis:</p>
                 <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                  {submission.aiAnalysis}
+                  {submission.analysisResult}
                 </p>
               </div>
             )}

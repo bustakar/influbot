@@ -1,8 +1,12 @@
+import { Id } from '../../../../../../../convex/_generated/dataModel';
+import SubmissionDetail from './_components/submission-detail';
+
 export default async function SubmissionPage({
   params,
 }: {
   params: Promise<{ challengeId: string; submissionId: string }>;
 }) {
-  const { challengeId, submissionId } = await params;
-  return <div>SubmissionPage</div>;
+  const { submissionId } = await params;
+
+  return <SubmissionDetail id={submissionId as Id<'submissions'>} />;
 }

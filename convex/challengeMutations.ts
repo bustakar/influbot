@@ -29,7 +29,7 @@ export const createChallenge = mutation({
       generateTopic: args.generateTopic,
     });
 
-    const firstSubmissionId = await ctx.db.insert('videos', {
+    const firstSubmissionId = await ctx.db.insert('submissions', {
       userId,
       challengeId,
       state: 'initial',

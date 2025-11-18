@@ -4,8 +4,9 @@ import { internalMutation } from './_generated/server';
 
 export const updateSubmissionTopic = internalMutation({
   args: {
-    submissionId: v.id('videos'),
+    submissionId: v.id('submissions'),
     topic: v.string(),
+    topicGenerationError: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -17,6 +18,13 @@ export const updateSubmissionTopic = internalMutation({
 
     await ctx.db.patch(args.submissionId, {
       topic: args.topic,
+      ...(args.topicGenerationError !== undefined && {
+        topicGenerationError: args.topicGenerationError,
+      }),
+      // Clear error if topic generation succeeded
+      ...(args.topicGenerationError === undefined && {
+        topicGenerationError: undefined,
+      }),
     });
 
     return null;
