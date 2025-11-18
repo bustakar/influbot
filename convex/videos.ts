@@ -264,118 +264,354 @@ export const downloadVideo480p = internalAction({
     // Since FFmpeg API requires file upload, we'll download from Cloudflare first
     // then upload to FFmpeg API
 
-    // Download video from Cloudflare
-    const videoDownloadResponse = await fetch(downloadUrl);
+    try {
+      // Download video from Cloudflare
+      const videoDownloadResponse = await fetch(downloadUrl);
 
-    if (!videoDownloadResponse.ok) {
+      if (!videoDownloadResponse.ok) {
+        throw new Error(
+          `Failed to download video from Cloudflare: ${videoDownloadResponse.status}`
+        );
+      }
+
+      const videoBlob = await videoDownloadResponse.blob();
+
+      // Upload video to FFmpeg API
+      const ffmpegFileResponse = await fetch(
+        'https://api.ffmpeg-api.com/file',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${ffmpegApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            file_name: `${args.cloudflareUid}_original.mp4`,
+          }),
+        }
+      );
+
+      if (!ffmpegFileResponse.ok) {
+        const errorText = await ffmpegFileResponse.text();
+        throw new Error(
+          `FFmpeg API file creation failed: ${ffmpegFileResponse.status} ${errorText}`
+        );
+      }
+
+      const ffmpegFileData = await ffmpegFileResponse.json();
+      const { file, upload } = ffmpegFileData;
+
+      // Upload the video file
+      const uploadResponse = await fetch(upload.url, {
+        method: 'PUT',
+        body: videoBlob,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(
+          `Failed to upload video to FFmpeg API: ${uploadResponse.status}`
+        );
+      }
+
+      // Process video to downsize to 480p
+      const ffmpegProcessResponse = await fetch(
+        'https://api.ffmpeg-api.com/ffmpeg/process',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${ffmpegApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            task: {
+              inputs: [{ file_path: file.file_path }],
+              outputs: [
+                {
+                  file: `${args.cloudflareUid}_480p.mp4`,
+                  // FFmpeg options to resize to 480p height, maintain aspect ratio
+                  // -vf scale=-2:480: scale to 480p height, auto width
+                  // -c:v libx264: use H.264 codec
+                  // -crf 23: good quality/size balance
+                  // -preset medium: encoding speed/quality balance
+                  options: [
+                    '-vf',
+                    'scale=-2:480',
+                    '-c:v',
+                    'libx264',
+                    '-crf',
+                    '23',
+                    '-preset',
+                    'medium',
+                    '-c:a',
+                    'copy', // Copy audio without re-encoding
+                  ],
+                },
+              ],
+            },
+          }),
+        }
+      );
+
+      if (!ffmpegProcessResponse.ok) {
+        const errorText = await ffmpegProcessResponse.text();
+        throw new Error(
+          `FFmpeg API processing failed: ${ffmpegProcessResponse.status} ${errorText}`
+        );
+      }
+
+      const ffmpegProcessData = await ffmpegProcessResponse.json();
+
+      // Get the downsized video download URL
+      // FFmpeg API returns an array of results
+      const downsizedVideoUrl =
+        ffmpegProcessData[0]?.download_url ||
+        ffmpegProcessData.download_url ||
+        ffmpegProcessData.result?.[0]?.download_url;
+
+      if (!downsizedVideoUrl) {
+        throw new Error('FFmpeg API did not return download URL');
+      }
+
+      // Update video record with downsized URL
+      await ctx.runMutation(
+        internal.videoMutations.updateVideoWithDownsizedUrl,
+        {
+          cloudflareUid: args.cloudflareUid,
+          downsizedVideoUrl,
+        }
+      );
+
+      // Trigger AI analysis with the downsized video
+      await ctx.scheduler.runAfter(0, internal.videos.analyzeVideoWithGemini, {
+        cloudflareUid: args.cloudflareUid,
+        videoUrl: downsizedVideoUrl,
+      });
+
+      return {
+        downsizedVideoUrl,
+      };
+    } catch (error) {
+      // Update video state to failed_compression
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown compression error';
+      await ctx.runMutation(internal.videoMutations.updateVideoState, {
+        cloudflareUid: args.cloudflareUid,
+        state: 'failed_compression',
+        errorMessage,
+      });
+      throw error;
+    }
+  },
+});
+
+/**
+ * Analyze video using Gemini Flash 2.0 via OpenRouter API.
+ * Downloads the downsized video and sends it to Gemini for analysis.
+ */
+export const analyzeVideoWithGemini = internalAction({
+  args: {
+    cloudflareUid: v.string(),
+    videoUrl: v.string(),
+  },
+  returns: v.object({
+    analysis: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+
+    if (!openRouterApiKey) {
       throw new Error(
-        `Failed to download video from Cloudflare: ${videoDownloadResponse.status}`
+        'OpenRouter API key not configured. Please set OPENROUTER_API_KEY environment variable.'
       );
     }
 
-    const videoBlob = await videoDownloadResponse.blob();
+    try {
+      // Update state to video_sent_to_ai
+      await ctx.runMutation(internal.videoMutations.updateVideoState, {
+        cloudflareUid: args.cloudflareUid,
+        state: 'video_sent_to_ai',
+      });
 
-    // Upload video to FFmpeg API
-    const ffmpegFileResponse = await fetch('https://api.ffmpeg-api.com/file', {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${ffmpegApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        file_name: `${args.cloudflareUid}_original.mp4`,
-      }),
-    });
+      // Download the downsized video
+      const videoResponse = await fetch(args.videoUrl);
 
-    if (!ffmpegFileResponse.ok) {
-      const errorText = await ffmpegFileResponse.text();
-      throw new Error(
-        `FFmpeg API file creation failed: ${ffmpegFileResponse.status} ${errorText}`
-      );
-    }
+      if (!videoResponse.ok) {
+        throw new Error(
+          `Failed to download downsized video: ${videoResponse.status}`
+        );
+      }
 
-    const ffmpegFileData = await ffmpegFileResponse.json();
-    const { file, upload } = ffmpegFileData;
+      const videoBlob = await videoResponse.blob();
+      const videoBuffer = await videoBlob.arrayBuffer();
+      const videoBase64 = Buffer.from(videoBuffer).toString('base64');
+      const videoDataUrl = `data:video/mp4;base64,${videoBase64}`;
 
-    // Upload the video file
-    const uploadResponse = await fetch(upload.url, {
-      method: 'PUT',
-      body: videoBlob,
-    });
-
-    if (!uploadResponse.ok) {
-      throw new Error(
-        `Failed to upload video to FFmpeg API: ${uploadResponse.status}`
-      );
-    }
-
-    // Process video to downsize to 480p
-    const ffmpegProcessResponse = await fetch(
-      'https://api.ffmpeg-api.com/ffmpeg/process',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${ffmpegApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          task: {
-            inputs: [{ file_path: file.file_path }],
-            outputs: [
+      // Send video to Gemini Flash 2.0 via OpenRouter
+      // Using base64 data URL since FFmpeg API URLs may not be publicly accessible
+      // According to OpenRouter docs: https://openrouter.ai/docs/features/multimodal/videos
+      const openRouterResponse = await fetch(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${openRouterApiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer':
+              process.env.OPENROUTER_HTTP_REFERER || 'https://influbot.com',
+            'X-Title': 'Influbot Video Analysis',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.0-flash-001',
+            messages: [
               {
-                file: `${args.cloudflareUid}_480p.mp4`,
-                // FFmpeg options to resize to 480p height, maintain aspect ratio
-                // -vf scale=-2:480: scale to 480p height, auto width
-                // -c:v libx264: use H.264 codec
-                // -crf 23: good quality/size balance
-                // -preset medium: encoding speed/quality balance
-                options: [
-                  '-vf',
-                  'scale=-2:480',
-                  '-c:v',
-                  'libx264',
-                  '-crf',
-                  '23',
-                  '-preset',
-                  'medium',
-                  '-c:a',
-                  'copy', // Copy audio without re-encoding
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Analyze this video and provide a detailed analysis including: main content, key moments, visual elements, and any notable features. Be comprehensive and detailed.',
+                  },
+                  {
+                    type: 'video_url',
+                    video_url: {
+                      url: videoDataUrl,
+                    },
+                  },
                 ],
               },
             ],
-          },
-        }),
-      }
-    );
-
-    if (!ffmpegProcessResponse.ok) {
-      const errorText = await ffmpegProcessResponse.text();
-      throw new Error(
-        `FFmpeg API processing failed: ${ffmpegProcessResponse.status} ${errorText}`
+            max_tokens: 4000,
+          }),
+        }
       );
+
+      if (!openRouterResponse.ok) {
+        const errorText = await openRouterResponse.text();
+        throw new Error(
+          `OpenRouter API failed: ${openRouterResponse.status} ${errorText}`
+        );
+      }
+
+      const openRouterData = await openRouterResponse.json();
+
+      const analysis =
+        openRouterData.choices?.[0]?.message?.content ||
+        openRouterData.choices?.[0]?.text ||
+        'Analysis not available';
+
+      // Update video record with analysis and set state to video_analysed
+      await ctx.runMutation(internal.videoMutations.updateVideoWithAnalysis, {
+        cloudflareUid: args.cloudflareUid,
+        analysis,
+      });
+
+      return {
+        analysis,
+      };
+    } catch (error) {
+      // Update video state to failed_analysis
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown analysis error';
+      await ctx.runMutation(internal.videoMutations.updateVideoState, {
+        cloudflareUid: args.cloudflareUid,
+        state: 'failed_analysis',
+        errorMessage,
+      });
+      throw error;
+    }
+  },
+});
+
+/**
+ * Retry compression for a video that failed compression.
+ * This action can be called from the UI to retry the compression step.
+ */
+export const retryCompression = action({
+  args: {
+    cloudflareUid: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Get user ID from auth
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
     }
 
-    const ffmpegProcessData = await ffmpegProcessResponse.json();
-
-    // Get the downsized video download URL
-    // FFmpeg API returns an array of results
-    const downsizedVideoUrl =
-      ffmpegProcessData[0]?.download_url ||
-      ffmpegProcessData.download_url ||
-      ffmpegProcessData.result?.[0]?.download_url;
-
-    if (!downsizedVideoUrl) {
-      throw new Error('FFmpeg API did not return download URL');
-    }
-
-    // Update video record with downsized URL
-    await ctx.runMutation(internal.videoMutations.updateVideoWithDownsizedUrl, {
+    // Verify video exists and belongs to user
+    const video = await ctx.runQuery(api.videoQueries.getVideoByCloudflareUid, {
       cloudflareUid: args.cloudflareUid,
-      downsizedVideoUrl,
     });
 
-    return {
-      downsizedVideoUrl,
-    };
+    if (!video) {
+      throw new Error('Video not found');
+    }
+
+    if (video.userId !== identity.subject) {
+      throw new Error('Unauthorized');
+    }
+
+    if (video.state !== 'failed_compression') {
+      throw new Error('Video is not in failed_compression state');
+    }
+
+    // Reset state to video_processed and clear error message
+    await ctx.runMutation(internal.videoMutations.updateVideoState, {
+      cloudflareUid: args.cloudflareUid,
+      state: 'video_processed',
+    });
+
+    // Trigger compression again
+    await ctx.scheduler.runAfter(0, internal.videos.downloadVideo480p, {
+      cloudflareUid: args.cloudflareUid,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Retry analysis for a video that failed analysis.
+ * This action can be called from the UI to retry the analysis step.
+ */
+export const retryAnalysis = action({
+  args: {
+    cloudflareUid: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Get user ID from auth
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
+    }
+
+    // Verify video exists and belongs to user
+    const video = await ctx.runQuery(api.videoQueries.getVideoByCloudflareUid, {
+      cloudflareUid: args.cloudflareUid,
+    });
+
+    if (!video) {
+      throw new Error('Video not found');
+    }
+
+    if (video.userId !== identity.subject) {
+      throw new Error('Unauthorized');
+    }
+
+    if (video.state !== 'failed_analysis') {
+      throw new Error('Video is not in failed_analysis state');
+    }
+
+    if (!video.downsizedVideoUrl) {
+      throw new Error('Downsized video URL not found');
+    }
+
+    // Trigger analysis again
+    await ctx.scheduler.runAfter(0, internal.videos.analyzeVideoWithGemini, {
+      cloudflareUid: args.cloudflareUid,
+      videoUrl: video.downsizedVideoUrl,
+    });
+
+    return null;
   },
 });

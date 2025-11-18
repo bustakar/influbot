@@ -1,5 +1,6 @@
 import { UserButton } from '@clerk/nextjs';
 
+import { VideoList } from './_components/video-list';
 import { VideoUploadForm } from './_components/video-upload-form';
 
 export default function DashboardPage() {
@@ -9,9 +10,10 @@ export default function DashboardPage() {
         Convex + Next.js + Clerk
         <UserButton />
       </header>
-      <main className="p-8 flex flex-col gap-8">
+      <main className="p-8 flex flex-col gap-8 max-w-4xl mx-auto w-full">
         <h1 className="text-4xl font-bold text-center">Dashboard</h1>
         <VideoUploadForm />
+        <VideoList />
       </main>
     </>
   );

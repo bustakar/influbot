@@ -69,7 +69,9 @@ export const updateVideoState = internalMutation({
       v.literal('video_uploaded'),
       v.literal('video_processed'),
       v.literal('video_sent_to_ai'),
-      v.literal('video_analysed')
+      v.literal('video_analysed'),
+      v.literal('failed_compression'),
+      v.literal('failed_analysis')
     ),
     errorMessage: v.optional(v.string()),
   },
@@ -91,7 +93,10 @@ export const updateVideoState = internalMutation({
 
     await ctx.db.patch(video._id, {
       state: args.state,
-      errorMessage: args.errorMessage,
+      ...(args.errorMessage !== undefined && {
+        errorMessage: args.errorMessage,
+      }),
+      ...(args.errorMessage === undefined && { errorMessage: undefined }),
     });
 
     return null;
@@ -122,6 +127,37 @@ export const updateVideoWithDownsizedUrl = internalMutation({
 
     await ctx.db.patch(video._id, {
       downsizedVideoUrl: args.downsizedVideoUrl,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Update video with AI analysis result and set state to video_analysed.
+ */
+export const updateVideoWithAnalysis = internalMutation({
+  args: {
+    cloudflareUid: v.string(),
+    analysis: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const video = await ctx.db
+      .query('videos')
+      .withIndex('by_cloudflareUid', (q) =>
+        q.eq('cloudflareUid', args.cloudflareUid)
+      )
+      .first();
+
+    if (!video) {
+      console.warn(`Video with cloudflareUid ${args.cloudflareUid} not found`);
+      return null;
+    }
+
+    await ctx.db.patch(video._id, {
+      state: 'video_analysed',
+      aiAnalysis: args.analysis,
     });
 
     return null;

@@ -9,6 +9,7 @@
  */
 
 import type * as videoMutations from "../videoMutations.js";
+import type * as videoQueries from "../videoQueries.js";
 import type * as videos from "../videos.js";
 
 import type {
@@ -19,6 +20,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   videoMutations: typeof videoMutations;
+  videoQueries: typeof videoQueries;
   videos: typeof videos;
 }>;
 
