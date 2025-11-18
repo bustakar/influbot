@@ -1,9 +1,65 @@
 import { v } from 'convex/values';
 
-import { internalMutation } from './_generated/server';
+import { internal } from './_generated/api';
+import { internalMutation, mutation } from './_generated/server';
 
 /**
- * Update video state. Internal mutation called from webhook handler.
+ * Create a new video record when upload URL is generated.
+ */
+export const createVideo = mutation({
+  args: {
+    cloudflareUid: v.string(),
+    userId: v.string(),
+  },
+  returns: v.id('videos'),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert('videos', {
+      userId: args.userId,
+      cloudflareUid: args.cloudflareUid,
+      state: 'upload_url_generated',
+    });
+  },
+});
+
+/**
+ * Update video state to uploaded when upload completes.
+ * Also starts polling Cloudflare Stream API to check when video is ready.
+ */
+export const markVideoUploaded = mutation({
+  args: {
+    cloudflareUid: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const video = await ctx.db
+      .query('videos')
+      .withIndex('by_cloudflareUid', (q) =>
+        q.eq('cloudflareUid', args.cloudflareUid)
+      )
+      .first();
+
+    if (!video) {
+      throw new Error(
+        `Video with cloudflareUid ${args.cloudflareUid} not found`
+      );
+    }
+
+    await ctx.db.patch(video._id, {
+      state: 'video_uploaded',
+    });
+
+    // Start polling Cloudflare Stream API to check video status
+    // First check after 10 seconds
+    await ctx.scheduler.runAfter(10, internal.videos.checkVideoStatus, {
+      cloudflareUid: args.cloudflareUid,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Update video state. Internal mutation called from polling action.
  */
 export const updateVideoState = internalMutation({
   args: {
@@ -36,6 +92,36 @@ export const updateVideoState = internalMutation({
     await ctx.db.patch(video._id, {
       state: args.state,
       errorMessage: args.errorMessage,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Update video with downsized video URL.
+ */
+export const updateVideoWithDownsizedUrl = internalMutation({
+  args: {
+    cloudflareUid: v.string(),
+    downsizedVideoUrl: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const video = await ctx.db
+      .query('videos')
+      .withIndex('by_cloudflareUid', (q) =>
+        q.eq('cloudflareUid', args.cloudflareUid)
+      )
+      .first();
+
+    if (!video) {
+      console.warn(`Video with cloudflareUid ${args.cloudflareUid} not found`);
+      return null;
+    }
+
+    await ctx.db.patch(video._id, {
+      downsizedVideoUrl: args.downsizedVideoUrl,
     });
 
     return null;

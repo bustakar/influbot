@@ -13,6 +13,7 @@ export default defineSchema({
       v.literal('video_analysed')
     ),
     errorMessage: v.optional(v.string()),
+    downsizedVideoUrl: v.optional(v.string()),
   })
     .index('by_userId', ['userId'])
     .index('by_cloudflareUid', ['cloudflareUid']),

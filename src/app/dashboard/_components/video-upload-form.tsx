@@ -1,7 +1,7 @@
 'use client';
 
 import { useForm } from '@tanstack/react-form';
-import { useAction } from 'convex/react';
+import { useAction, useMutation } from 'convex/react';
 import * as React from 'react';
 import { toast } from 'sonner';
 import * as z from 'zod';
@@ -43,6 +43,7 @@ export function VideoUploadForm() {
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [isUploading, setIsUploading] = React.useState(false);
   const generateUploadUrl = useAction(api.videos.generateCloudflareUploadUrl);
+  const markVideoUploaded = useMutation(api.videoMutations.markVideoUploaded);
 
   const form = useForm({
     defaultValues: {
@@ -60,13 +61,16 @@ export function VideoUploadForm() {
       setUploadProgress(0);
 
       try {
-        // Get upload URL from Convex
+        // Get upload URL from Convex (this also creates the video record)
         const { uploadURL, uid } = await generateUploadUrl();
 
         // Upload file to Cloudflare Stream with progress tracking
         await uploadFileWithProgress(value.video, uploadURL, (progress) => {
           setUploadProgress(progress);
         });
+
+        // Mark video as uploaded in database
+        await markVideoUploaded({ cloudflareUid: uid });
 
         toast.success('Video uploaded successfully!', {
           description: `Video UID: ${uid}`,

@@ -8,7 +8,6 @@
  * @module
  */
 
-import type * as http from "../http.js";
 import type * as videoMutations from "../videoMutations.js";
 import type * as videos from "../videos.js";
 
@@ -19,7 +18,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  http: typeof http;
   videoMutations: typeof videoMutations;
   videos: typeof videos;
 }>;
