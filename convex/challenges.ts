@@ -13,6 +13,7 @@ export const list = query({
       requiredNumberOfSubmissions: v.number(),
       desiredImprovements: v.array(v.string()),
       specifyPrompt: v.string(),
+      generateTopic: v.boolean(),
       _creationTime: v.number(),
     })
   ),
@@ -44,14 +45,24 @@ export const getById = query({
       requiredNumberOfSubmissions: v.number(),
       desiredImprovements: v.array(v.string()),
       specifyPrompt: v.string(),
-      submissions: v.array(
+      generateTopic: v.boolean(),
+      submissionSlots: v.array(
         v.object({
-          _id: v.id('videos'),
-          state: videoStateValidator,
-          aiAnalysis: v.optional(v.string()),
-          _creationTime: v.number(),
+          position: v.number(),
+          submission: v.union(
+            v.object({
+              _id: v.id('videos'),
+              state: videoStateValidator,
+              topic: v.optional(v.string()),
+              aiAnalysis: v.optional(v.string()),
+              _creationTime: v.number(),
+            }),
+            v.null()
+          ),
+          isLocked: v.boolean(),
         })
       ),
+      completedCount: v.number(),
       _creationTime: v.number(),
     }),
     v.null()
@@ -74,11 +85,46 @@ export const getById = query({
     const submissions = await ctx.db
       .query('videos')
       .withIndex('by_challengeId', (q) => q.eq('challengeId', args.challengeId))
+      .order('asc')
       .collect();
+
+    const completedCount = submissions.filter(
+      (sub) => sub.state === 'video_analysed'
+    ).length;
+
+    const nextUnlockedIndex = completedCount;
+
+    const submissionSlots = Array.from(
+      { length: challenge.requiredNumberOfSubmissions },
+      (_, index) => {
+        const submission =
+          index < submissions.length ? submissions[index] : null;
+
+        // A submission is unlocked if:
+        // 1. It's completed (index < completedCount)
+        // 2. It's the next upcoming one (index === completedCount)
+        const isUnlocked = index <= nextUnlockedIndex;
+
+        return {
+          position: index,
+          submission: submission
+            ? {
+                _id: submission._id,
+                state: submission.state,
+                topic: submission.topic,
+                aiAnalysis: submission.aiAnalysis,
+                _creationTime: submission._creationTime,
+              }
+            : null,
+          isLocked: !isUnlocked,
+        };
+      }
+    );
 
     return {
       ...challenge,
-      submissions,
+      submissionSlots,
+      completedCount,
     };
   },
 });

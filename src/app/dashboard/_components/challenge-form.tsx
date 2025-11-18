@@ -47,6 +47,7 @@ const formSchema = z.object({
     .string()
     .min(10, 'Prompt must be at least 10 characters')
     .max(500, 'Prompt must be at most 500 characters'),
+  generateTopic: z.boolean(),
 });
 
 export function ChallengeForm() {
@@ -58,6 +59,7 @@ export function ChallengeForm() {
       requiredNumberOfSubmissions: 30,
       desiredImprovements: [] as string[],
       specifyPrompt: '',
+      generateTopic: true,
     },
     validators: {
       onSubmit: formSchema,
@@ -69,6 +71,7 @@ export function ChallengeForm() {
           requiredNumberOfSubmissions: value.requiredNumberOfSubmissions,
           desiredImprovements: value.desiredImprovements,
           specifyPrompt: value.specifyPrompt,
+          generateTopic: value.generateTopic,
         });
 
         toast.success('Challenge created successfully!');
@@ -235,6 +238,37 @@ export function ChallengeForm() {
                   <FieldDescription>
                     Provide additional context about your goals and what you
                     want to achieve
+                  </FieldDescription>
+                  {isInvalid && <FieldError errors={field.state.meta.errors} />}
+                </Field>
+              );
+            }}
+          />
+
+          <form.Field
+            name="generateTopic"
+            children={(field) => {
+              const isInvalid =
+                field.state.meta.isTouched && !field.state.meta.isValid;
+
+              return (
+                <Field data-invalid={isInvalid}>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id={field.name}
+                      checked={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.checked)}
+                      onBlur={field.handleBlur}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <FieldLabel htmlFor={field.name} className="cursor-pointer">
+                      Generate topic ideas automatically
+                    </FieldLabel>
+                  </div>
+                  <FieldDescription>
+                    If enabled, AI will generate a topic idea for each
+                    submission based on your improvement goals
                   </FieldDescription>
                   {isInvalid && <FieldError errors={field.state.meta.errors} />}
                 </Field>

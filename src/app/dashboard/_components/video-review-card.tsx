@@ -29,7 +29,7 @@ type VideoState =
 
 type Video = {
   _id: string;
-  cloudflareUid: string;
+  cloudflareUid?: string;
   state: VideoState;
   errorMessage?: string;
   aiAnalysis?: string;
@@ -89,6 +89,10 @@ export function VideoReviewCard({ video }: VideoReviewCardProps) {
   const checkStatusManually = useAction(api.videos.checkVideoStatusManually);
 
   const handleRetryCompression = async () => {
+    if (!video.cloudflareUid) {
+      toast.error('No video UID available');
+      return;
+    }
     try {
       await retryCompression({ cloudflareUid: video.cloudflareUid });
       toast.success('Retrying compression...');
@@ -102,6 +106,10 @@ export function VideoReviewCard({ video }: VideoReviewCardProps) {
   };
 
   const handleRetryUpload = async () => {
+    if (!video.cloudflareUid) {
+      toast.error('No video UID available');
+      return;
+    }
     try {
       await retryUpload({ cloudflareUid: video.cloudflareUid });
       toast.success(
@@ -117,6 +125,10 @@ export function VideoReviewCard({ video }: VideoReviewCardProps) {
   };
 
   const handleRetryAnalysis = async () => {
+    if (!video.cloudflareUid) {
+      toast.error('No video UID available');
+      return;
+    }
     try {
       await retryAnalysis({ cloudflareUid: video.cloudflareUid });
       toast.success('Retrying analysis...');
@@ -130,6 +142,10 @@ export function VideoReviewCard({ video }: VideoReviewCardProps) {
   };
 
   const handleCheckStatus = async () => {
+    if (!video.cloudflareUid) {
+      toast.error('No video UID available');
+      return;
+    }
     try {
       await checkStatusManually({ cloudflareUid: video.cloudflareUid });
       toast.success('Checking video status...');
@@ -144,7 +160,9 @@ export function VideoReviewCard({ video }: VideoReviewCardProps) {
 
   // Cloudflare Stream embed URL
   // Format: https://iframe.videodelivery.net/{videoId}
-  const videoEmbedUrl = `https://iframe.videodelivery.net/${video.cloudflareUid}`;
+  const videoEmbedUrl = video.cloudflareUid
+    ? `https://iframe.videodelivery.net/${video.cloudflareUid}`
+    : undefined;
 
   // Only show video embed once it's uploaded (not just URL generated or failed upload)
   const canShowVideo = [
@@ -207,14 +225,14 @@ export function VideoReviewCard({ video }: VideoReviewCardProps) {
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Video Player Section */}
-        {canShowVideo ? (
+        {canShowVideo && videoEmbedUrl ? (
           <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
             <iframe
               src={videoEmbedUrl}
               className="w-full h-full"
               allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
               allowFullScreen
-              title={`Video ${video.cloudflareUid}`}
+              title={`Video ${video.cloudflareUid || 'unknown'}`}
             />
           </div>
         ) : video.state === 'failed_upload' ? (

@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 
 import { query } from './_generated/server';
+import { videoStateValidator } from './schema';
 
 /**
  * Get all videos for the current user.
@@ -11,18 +12,8 @@ export const getVideosByUser = query({
     v.object({
       _id: v.id('videos'),
       userId: v.string(),
-      cloudflareUid: v.string(),
-      state: v.union(
-        v.literal('upload_url_generated'),
-        v.literal('video_uploaded'),
-        v.literal('video_processed'),
-        v.literal('video_sent_to_ai'),
-        v.literal('video_analysed'),
-        v.literal('failed_upload'),
-        v.literal('failed_compression'),
-        v.literal('failed_analysis'),
-        v.literal('processing_timeout')
-      ),
+      cloudflareUid: v.optional(v.string()),
+      state: videoStateValidator,
       errorMessage: v.optional(v.string()),
       downsizedVideoUrl: v.optional(v.string()),
       aiAnalysis: v.optional(v.string()),
@@ -57,18 +48,8 @@ export const getVideoByCloudflareUid = query({
     v.object({
       _id: v.id('videos'),
       userId: v.string(),
-      cloudflareUid: v.string(),
-      state: v.union(
-        v.literal('upload_url_generated'),
-        v.literal('video_uploaded'),
-        v.literal('video_processed'),
-        v.literal('video_sent_to_ai'),
-        v.literal('video_analysed'),
-        v.literal('failed_upload'),
-        v.literal('failed_compression'),
-        v.literal('failed_analysis'),
-        v.literal('processing_timeout')
-      ),
+      cloudflareUid: v.optional(v.string()),
+      state: videoStateValidator,
       errorMessage: v.optional(v.string()),
       downsizedVideoUrl: v.optional(v.string()),
       aiAnalysis: v.optional(v.string()),

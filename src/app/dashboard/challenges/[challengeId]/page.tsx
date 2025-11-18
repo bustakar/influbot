@@ -4,8 +4,8 @@ import ChallengeDetail from './_components/challenge-detail';
 export default async function ChallengePage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ challengeId: string }>;
 }) {
-  const { id } = await params;
-  return <ChallengeDetail id={id as Id<'challenges'>} />;
+  const { challengeId } = await params;
+  return <ChallengeDetail id={challengeId as Id<'challenges'>} />;
 }

@@ -8,7 +8,7 @@
     "dev:backend": "convex dev",
     "predev": "convex dev --until-success && convex dashboard",
     "build": "pnpm lint:fix && next build",
-    "generate": "pnpm dlx convex codegen",
+    "gen": "pnpm dlx convex codegen",
     "start": "next start",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"

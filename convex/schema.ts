@@ -4,6 +4,7 @@ import { Infer, v } from 'convex/values';
 import { Id } from './_generated/dataModel';
 
 export const videoStateValidator = v.union(
+  v.literal('initial'),
   v.literal('upload_url_generated'),
   v.literal('video_uploaded'),
   v.literal('video_processed'),
@@ -23,17 +24,19 @@ export const challengeValidator = v.object({
   requiredNumberOfSubmissions: v.number(),
   desiredImprovements: v.array(v.string()),
   specifyPrompt: v.string(),
+  generateTopic: v.boolean(),
 });
 
 export default defineSchema({
   videos: defineTable({
     userId: v.string(),
     challengeId: v.optional(v.id('challenges')),
-    cloudflareUid: v.string(),
+    cloudflareUid: v.optional(v.string()),
     state: videoStateValidator,
     errorMessage: v.optional(v.string()),
     downsizedVideoUrl: v.optional(v.string()),
     aiAnalysis: v.optional(v.string()),
+    topic: v.optional(v.string()),
     pollingStartTime: v.optional(v.number()),
   })
     .index('by_userId', ['userId'])

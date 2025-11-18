@@ -1,7 +1,8 @@
 'use client';
 
 import { useQuery } from 'convex/react';
-import { CheckCircle2, Circle, Folder } from 'lucide-react';
+import { CheckCircle2, Circle, Folder, Lock } from 'lucide-react';
+import Link from 'next/link';
 
 import {
   Card,
@@ -73,24 +74,35 @@ type SubmissionCardProps = {
   submission: {
     _id: Id<'videos'>;
     state: VideoState;
+    topic?: string;
     aiAnalysis?: string;
     _creationTime: number;
   } | null;
+  isLocked: boolean;
 };
 
 const SubmissionCard = ({
   position,
   totalRequired,
   submission,
+  isLocked,
 }: SubmissionCardProps) => {
   const isCompleted = submission?.state === 'video_analysed';
 
   return (
-    <Card>
+    <Card
+      className={`my-4 transition-all ${
+        isLocked
+          ? 'opacity-60 cursor-not-allowed'
+          : 'hover:shadow-md cursor-pointer'
+      }`}
+    >
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {isCompleted ? (
+            {isLocked ? (
+              <Lock className="h-5 w-5 text-muted-foreground" />
+            ) : isCompleted ? (
               <CheckCircle2 className="h-5 w-5 text-green-600" />
             ) : submission ? (
               <Circle className="h-5 w-5 text-blue-600" />
@@ -101,25 +113,33 @@ const SubmissionCard = ({
               Submission {position + 1} of {totalRequired}
             </CardTitle>
           </div>
-          {submission && (
-            <span
-              className={`px-2 py-1 text-xs font-semibold rounded-md ${
-                isCompleted
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                  : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-              }`}
-            >
-              {isCompleted ? 'Completed' : 'In Progress'}
+          {isLocked ? (
+            <span className="px-2 py-1 text-xs font-semibold rounded-md bg-muted text-muted-foreground">
+              Locked
             </span>
+          ) : (
+            submission && (
+              <span
+                className={`px-2 py-1 text-xs font-semibold rounded-md ${
+                  isCompleted
+                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                    : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                }`}
+              >
+                {isCompleted ? 'Completed' : 'In Progress'}
+              </span>
+            )
           )}
         </div>
       </CardHeader>
       <CardContent>
-        {submission ? (
+        {isLocked ? (
+          <p className="text-sm text-muted-foreground">
+            Complete previous submissions to unlock this one
+          </p>
+        ) : submission ? (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Submitted {new Date(submission._creationTime).toLocaleString()}
-            </p>
+            {submission.topic && <p className="text-sm">{submission.topic}</p>}
             {submission.aiAnalysis && (
               <div className="mt-4 p-4 bg-muted rounded-lg">
                 <p className="text-sm font-semibold mb-2">AI Analysis:</p>
@@ -128,6 +148,9 @@ const SubmissionCard = ({
                 </p>
               </div>
             )}
+            <p className="text-sm text-muted-foreground">
+              Submitted {new Date(submission._creationTime).toLocaleString()}
+            </p>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">No submission yet</p>
@@ -228,20 +251,6 @@ export default function ChallengeDetail({ id }: { id: Id<'challenges'> }) {
     return <EmptyChallenge />;
   }
 
-  const submissionSlots = Array.from(
-    { length: challenge.requiredNumberOfSubmissions },
-    (_, index) => {
-      return {
-        position: index,
-        totalRequired: challenge.requiredNumberOfSubmissions,
-        submission:
-          index < challenge.submissions.length
-            ? challenge.submissions[index]
-            : null,
-      };
-    }
-  );
-
   return (
     <div className="p-8 max-w-4xl mx-auto w-full space-y-6">
       <ChallengeDetailCard
@@ -249,7 +258,7 @@ export default function ChallengeDetail({ id }: { id: Id<'challenges'> }) {
         requiredNumberOfSubmissions={challenge.requiredNumberOfSubmissions}
         desiredImprovements={challenge.desiredImprovements}
         specifyPrompt={challenge.specifyPrompt}
-        submissionsCount={challenge.submissions.length}
+        submissionsCount={challenge.completedCount}
         creationTime={challenge._creationTime}
       />
 
@@ -257,9 +266,31 @@ export default function ChallengeDetail({ id }: { id: Id<'challenges'> }) {
 
       <div className="space-y-4">
         <h2 className="text-2xl font-semibold">Submissions</h2>
-        {submissionSlots.map((slot) => (
-          <SubmissionCard key={slot.position} {...slot} />
-        ))}
+        {challenge.submissionSlots.map((slot) => {
+          const card = (
+            <SubmissionCard
+              position={slot.position}
+              totalRequired={challenge.requiredNumberOfSubmissions}
+              submission={slot.submission}
+              isLocked={slot.isLocked}
+            />
+          );
+
+          if (slot.isLocked) {
+            return <div key={slot.position}>{card}</div>;
+          }
+
+          if (slot.submission?._id) {
+            return (
+              <Link
+                href={`/dashboard/challenges/${id}/submissions/${slot.submission._id}`}
+                key={slot.position}
+              >
+                {card}
+              </Link>
+            );
+          }
+        })}
       </div>
     </div>
   );
