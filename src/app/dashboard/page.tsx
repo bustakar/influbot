@@ -40,5 +40,17 @@ export default function DashboardPage() {
     );
   }
 
-  return <>Dashboard</>;
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Folder />
+        </EmptyMedia>
+        <EmptyTitle>No Challenge Selected</EmptyTitle>
+        <EmptyDescription>
+          Select a challenge to view its detail.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
 }
