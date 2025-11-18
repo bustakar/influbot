@@ -1,5 +1,15 @@
 import { defineSchema, defineTable } from 'convex/server';
-import { v } from 'convex/values';
+import { Infer, v } from 'convex/values';
+
+import { Id } from './_generated/dataModel';
+
+const challengeValidator = v.object({
+  userId: v.string(),
+  title: v.string(),
+  requiredNumberOfSubmissions: v.number(),
+  desiredImprovements: v.array(v.string()),
+  specifyPrompt: v.string(),
+});
 
 export default defineSchema({
   videos: defineTable({
@@ -23,4 +33,9 @@ export default defineSchema({
   })
     .index('by_userId', ['userId'])
     .index('by_cloudflareUid', ['cloudflareUid']),
+  challenges: defineTable(challengeValidator).index('by_userId', ['userId']),
 });
+
+export type Challenge = Infer<typeof challengeValidator> & {
+  _id: Id<'challenges'>;
+};

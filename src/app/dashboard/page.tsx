@@ -1,20 +1,44 @@
-import { UserButton } from '@clerk/nextjs';
+'use client';
 
-import { VideoList } from './_components/video-list';
-import { VideoUploadForm } from './_components/video-upload-form';
+import { useQuery } from 'convex/react';
+import { Folder } from 'lucide-react';
+
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+
+import { api } from '../../../convex/_generated/api';
+import { CreateChallengeDialog } from './_components/create-challenge-dialog';
 
 export default function DashboardPage() {
-  return (
-    <>
-      <header className="sticky top-0 z-10 bg-background p-4 border-b-2 border-slate-200 dark:border-slate-800 flex flex-row justify-between items-center">
-        Convex + Next.js + Clerk
-        <UserButton />
-      </header>
-      <main className="p-8 flex flex-col gap-8 max-w-4xl mx-auto w-full">
-        <h1 className="text-4xl font-bold text-center">Dashboard</h1>
-        <VideoUploadForm />
-        <VideoList />
-      </main>
-    </>
-  );
+  const challenges = useQuery(api.challenges.list);
+
+  if (challenges === undefined || challenges.length === 0) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Folder />
+          </EmptyMedia>
+          <EmptyTitle>No Challenges Yet</EmptyTitle>
+          <EmptyDescription>
+            You haven&apos;t created any challenges yet. Get started by creating
+            your first challenge.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <div className="flex gap-2">
+            <CreateChallengeDialog />
+          </div>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+
+  return <>Dashboard</>;
 }

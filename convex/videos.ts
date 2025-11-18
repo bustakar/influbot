@@ -119,107 +119,96 @@ export const checkVideoStatus = internalAction({
     cloudflareUid: v.string(),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-
-    if (!accountId || !apiToken) {
-      throw new Error(
-        'Cloudflare credentials not configured. Please set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN environment variables.'
-      );
-    }
-
-    // Get video record to check polling start time
-    const videoRecord = await ctx.runQuery(
-      api.videoQueries.getVideoByCloudflareUid,
-      {
-        cloudflareUid: args.cloudflareUid,
-      }
-    );
-
-    // Check for timeout (30 minutes = 1800 seconds)
-    const POLLING_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-    const now = Date.now();
-    if (videoRecord?.pollingStartTime) {
-      const elapsed = now - videoRecord.pollingStartTime;
-      if (elapsed > POLLING_TIMEOUT_MS) {
-        // Timeout reached - stop polling and mark as timeout
-        await ctx.runMutation(internal.videoMutations.updateVideoState, {
-          cloudflareUid: args.cloudflareUid,
-          state: 'processing_timeout',
-          errorMessage:
-            'Video processing timed out after 30 minutes. Cloudflare may be experiencing issues. Please check status manually.',
-        });
-        return null;
-      }
-    }
-
-    // Get video status from Cloudflare Stream API
-    const videoResponse = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${args.cloudflareUid}`,
-      {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-        },
-      }
-    );
-
-    if (!videoResponse.ok) {
-      const errorText = await videoResponse.text();
-      console.error(
-        `Failed to get video status: ${videoResponse.status} ${errorText}`
-      );
-      // Schedule another check in case it's a temporary error
-      await ctx.scheduler.runAfter(10, internal.videos.checkVideoStatus, {
-        cloudflareUid: args.cloudflareUid,
-      });
-      return null;
-    }
-
-    const videoData = await videoResponse.json();
-
-    if (!videoData.success) {
-      console.error('Cloudflare API returned unsuccessful response');
-      // Schedule another check
-      await ctx.scheduler.runAfter(10, internal.videos.checkVideoStatus, {
-        cloudflareUid: args.cloudflareUid,
-      });
-      return null;
-    }
-
-    const video = videoData.result;
-    const status = video.status?.state;
-
-    // Check if video is ready
-    if (status === 'ready') {
-      // Update state to video_processed
-      await ctx.runMutation(internal.videoMutations.updateVideoState, {
-        cloudflareUid: args.cloudflareUid,
-        state: 'video_processed',
-      });
-
-      // Trigger download of 480p video
-      await ctx.scheduler.runAfter(0, internal.videos.downloadVideo480p, {
-        cloudflareUid: args.cloudflareUid,
-      });
-    } else if (status === 'error') {
-      // Handle error state
-      const errorCode = video.status?.errReasonCode || 'ERR_UNKNOWN';
-      const errorText = video.status?.errReasonText || 'Unknown error';
-      await ctx.runMutation(internal.videoMutations.updateVideoState, {
-        cloudflareUid: args.cloudflareUid,
-        state: 'video_processed',
-        errorMessage: `${errorCode}: ${errorText}`,
-      });
-    } else {
-      // Video is still processing, schedule another check in 10 seconds
-      await ctx.scheduler.runAfter(10, internal.videos.checkVideoStatus, {
-        cloudflareUid: args.cloudflareUid,
-      });
-    }
-
-    return null;
+  handler: async () => {
+    // const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    // const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    // if (!accountId || !apiToken) {
+    //   throw new Error(
+    //     'Cloudflare credentials not configured. Please set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN environment variables.'
+    //   );
+    // }
+    // // Get video record to check polling start time
+    // const videoRecord = await ctx.runQuery(
+    //   api.videoQueries.getVideoByCloudflareUid,
+    //   {
+    //     cloudflareUid: args.cloudflareUid,
+    //   }
+    // );
+    // // Check for timeout (30 minutes = 1800 seconds)
+    // const POLLING_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+    // const now = Date.now();
+    // if (videoRecord?.pollingStartTime) {
+    //   const elapsed = now - videoRecord.pollingStartTime;
+    //   if (elapsed > POLLING_TIMEOUT_MS) {
+    //     // Timeout reached - stop polling and mark as timeout
+    //     await ctx.runMutation(internal.videoMutations.updateVideoState, {
+    //       cloudflareUid: args.cloudflareUid,
+    //       state: 'processing_timeout',
+    //       errorMessage:
+    //         'Video processing timed out after 30 minutes. Cloudflare may be experiencing issues. Please check status manually.',
+    //     });
+    //     return null;
+    //   }
+    // }
+    // // Get video status from Cloudflare Stream API
+    // const videoResponse = await fetch(
+    //   `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${args.cloudflareUid}`,
+    //   {
+    //     method: 'GET',
+    //     headers: {
+    //       Authorization: `Bearer ${apiToken}`,
+    //     },
+    //   }
+    // );
+    // if (!videoResponse.ok) {
+    //   const errorText = await videoResponse.text();
+    //   console.error(
+    //     `Failed to get video status: ${videoResponse.status} ${errorText}`
+    //   );
+    //   // Schedule another check in case it's a temporary error
+    //   await ctx.scheduler.runAfter(10, internal.videos.checkVideoStatus, {
+    //     cloudflareUid: args.cloudflareUid,
+    //   });
+    //   return null;
+    // }
+    // const videoData = await videoResponse.json();
+    // if (!videoData.success) {
+    //   console.error('Cloudflare API returned unsuccessful response');
+    //   // Schedule another check
+    //   await ctx.scheduler.runAfter(10, internal.videos.checkVideoStatus, {
+    //     cloudflareUid: args.cloudflareUid,
+    //   });
+    //   return null;
+    // }
+    // const video = videoData.result;
+    // const status = video.status?.state;
+    // // Check if video is ready
+    // if (status === 'ready') {
+    //   // Update state to video_processed
+    //   await ctx.runMutation(internal.videoMutations.updateVideoState, {
+    //     cloudflareUid: args.cloudflareUid,
+    //     state: 'video_processed',
+    //   });
+    //   // Trigger download of 480p video
+    //   await ctx.scheduler.runAfter(0, internal.videos.downloadVideo480p, {
+    //     cloudflareUid: args.cloudflareUid,
+    //   });
+    // } else if (status === 'error') {
+    //   // Handle error state
+    //   const errorCode = video.status?.errReasonCode || 'ERR_UNKNOWN';
+    //   const errorText = video.status?.errReasonText || 'Unknown error';
+    //   await ctx.runMutation(internal.videoMutations.updateVideoState, {
+    //     cloudflareUid: args.cloudflareUid,
+    //     state: 'video_processed',
+    //     errorMessage: `${errorCode}: ${errorText}`,
+    //   });
+    // } else {
+    //   // Video is still processing, schedule another check in 10 seconds
+    //   await ctx.scheduler.runAfter(10, internal.videos.checkVideoStatus, {
+    //     cloudflareUid: args.cloudflareUid,
+    //   });
+    // }
+    // return null;
   },
 });
 

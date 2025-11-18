@@ -119,7 +119,7 @@ export function VideoUploadForm() {
   });
 
   return (
-    <Card className="w-full sm:max-w-md">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>Upload Video</CardTitle>
         <CardDescription>
