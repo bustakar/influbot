@@ -1,13 +1,8 @@
 'use client';
 
-import { useAction, useQuery } from 'convex/react';
-import { CheckCircle2, Circle, Folder } from 'lucide-react';
-import { toast } from 'sonner';
-
 import { Button } from '@/components/ui/button';
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -21,10 +16,14 @@ import {
 } from '@/components/ui/empty';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAction, useQuery } from 'convex/react';
+import { CheckCircle2, Circle, Folder } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { api } from '../../../../../../../../convex/_generated/api';
 import { Id } from '../../../../../../../../convex/_generated/dataModel';
 import { VideoState } from '../../../../../../../../convex/schema';
+import { VideoSection } from './video-section';
 
 const SubmissionSkeleton = () => {
   return (
@@ -185,158 +184,6 @@ const StatusBadge = ({ state, errorMessage }: StatusBadgeProps) => {
   );
 };
 
-type VideoSectionProps = {
-  cloudflareUploadUrl?: string;
-  state: VideoState;
-};
-
-const VideoSection = ({ cloudflareUploadUrl, state }: VideoSectionProps) => {
-  // Extract Cloudflare UID from upload URL if available
-  // Format: https://upload.videodelivery.net/{uid}
-  const cloudflareUid = cloudflareUploadUrl?.split('/').pop();
-
-  const canShowVideo = [
-    'video_uploaded',
-    'video_processed',
-    'video_sent_to_ai',
-    'video_analysed',
-    'failed_compression',
-    'failed_analysis',
-    'processing_timeout',
-  ].includes(state);
-
-  // Show video embed if uploaded
-  if (canShowVideo && cloudflareUid) {
-    const videoEmbedUrl = `https://iframe.videodelivery.net/${cloudflareUid}`;
-
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Video</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
-            <iframe
-              src={videoEmbedUrl}
-              className="w-full h-full"
-              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
-              allowFullScreen
-              title={`Video ${cloudflareUid}`}
-            />
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Show error states
-  if (state === 'failed_upload') {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Upload Video</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="w-full aspect-video bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-center">
-            <div className="text-center p-4">
-              <p className="text-red-800 dark:text-red-200 font-semibold mb-2">
-                Upload Failed
-              </p>
-              <p className="text-sm text-red-700 dark:text-red-300">
-                The video upload did not complete successfully. Please try
-                uploading again.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (state === 'processing_timeout') {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Video</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="w-full aspect-video bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-center justify-center">
-            <div className="text-center p-4">
-              <p className="text-yellow-800 dark:text-yellow-200 font-semibold mb-2">
-                Processing Timeout
-              </p>
-              <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                Video processing timed out after 30 minutes. Cloudflare may be
-                experiencing issues.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Show upload dropzone for initial states
-  if (['initial', 'upload_url_generated'].includes(state)) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Upload Video</CardTitle>
-          <CardDescription>
-            Upload your video submission. Maximum file size: 500MB
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="w-full aspect-video border-2 border-dashed border-muted-foreground/25 rounded-lg flex flex-col items-center justify-center gap-4 p-8 hover:border-muted-foreground/50 transition-colors">
-            <div className="text-center space-y-2">
-              <p className="text-lg font-semibold">Drop your video here</p>
-              <p className="text-sm text-muted-foreground">
-                or click to browse files
-              </p>
-            </div>
-            <input
-              type="file"
-              accept="video/*"
-              className="hidden"
-              id="video-upload-input"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  // TODO: Implement upload logic
-                  toast.info('Upload functionality coming soon');
-                }
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                document.getElementById('video-upload-input')?.click();
-              }}
-            >
-              Select Video File
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Show processing state
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Your Video</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="w-full aspect-video bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-          <p className="text-muted-foreground">Video is being processed...</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
-
 type AnalysisResultProps = {
   analysisResult?: string;
   state: VideoState;
@@ -436,13 +283,12 @@ export default function SubmissionDetail({ id }: { id: Id<'submissions'> }) {
         submissionId={submission._id}
       />
 
-      {/* Video Section - Shows dropzone or embed based on state */}
       <VideoSection
-        cloudflareUploadUrl={submission.cloudflareUploadUrl}
+        cloudflareUid={submission.cloudflareUid}
         state={submission.state}
+        submissionId={submission._id}
       />
 
-      {/* Analysis Result */}
       <AnalysisResult
         analysisResult={submission.analysisResult}
         state={submission.state}

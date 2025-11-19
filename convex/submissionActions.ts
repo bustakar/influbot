@@ -197,3 +197,704 @@ export const retryTopicGeneration = action({
     return null;
   },
 });
+
+export const generateSubmissionTusConfig: ReturnType<typeof action> = action({
+  args: {
+    submissionId: v.id('submissions'),
+    fileSize: v.number(),
+    fileName: v.string(),
+    fileType: v.string(),
+  },
+  returns: v.object({
+    uploadUrl: v.string(),
+    videoUid: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    if (!accountId) {
+      throw new Error(
+        'Cloudflare credentials not configured. Please set CLOUDFLARE_ACCOUNT_ID environment variable.'
+      );
+    }
+
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    if (!apiToken) {
+      throw new Error(
+        'Cloudflare API token not configured. Please set CLOUDFLARE_API_TOKEN environment variable.'
+      );
+    }
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
+    }
+
+    const submission = await ctx.runQuery(api.submissions.getById, {
+      submissionId: args.submissionId,
+    });
+
+    if (!submission) {
+      throw new Error('Submission not found');
+    }
+
+    if (submission.userId !== identity.subject) {
+      throw new Error('Unauthorized');
+    }
+
+    const uploadMetadata = Buffer.from(
+      `name=${args.fileName},filetype=${args.fileType}`
+    ).toString('base64');
+
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream?direct_user=true`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Tus-Resumable': '1.0.0',
+          'Upload-Length': args.fileSize.toString(),
+          'Upload-Metadata': uploadMetadata,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Cloudflare API error: ${response.status} ${text}`);
+    }
+
+    const uploadUrl = response.headers.get('Location');
+    const streamMediaId = response.headers.get('stream-media-id');
+
+    if (!uploadUrl || !streamMediaId) {
+      throw new Error(
+        'Missing Location or stream-media-id header from Cloudflare'
+      );
+    }
+
+    await ctx.runMutation(
+      api.submissionMutations.updateSubmissionCloudflareUid,
+      {
+        submissionId: args.submissionId,
+        cloudflareUid: streamMediaId,
+      }
+    );
+
+    return {
+      uploadUrl: uploadUrl,
+      videoUid: streamMediaId,
+    };
+  },
+});
+
+/**
+ * Check Cloudflare Stream video status for a submission by polling the API.
+ * This is called periodically (every 30 seconds) until video is ready or max retries reached.
+ */
+export const checkSubmissionVideoStatus = internalAction({
+  args: {
+    submissionId: v.id('submissions'),
+    retryCount: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const MAX_RETRY_COUNT = 10;
+    const POLLING_INTERVAL_SECONDS = 30;
+
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+    if (!accountId || !apiToken) {
+      throw new Error(
+        'Cloudflare credentials not configured. Please set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN environment variables.'
+      );
+    }
+
+    // Get submission record to check cloudflareUid
+    const submission = await ctx.runQuery(
+      internal.submissions.getByIdInternal,
+      {
+        submissionId: args.submissionId,
+      }
+    );
+
+    if (!submission) {
+      console.warn(`Submission with id ${args.submissionId} not found`);
+      return null;
+    }
+
+    if (!submission.cloudflareUid) {
+      console.warn(`Submission ${args.submissionId} has no cloudflareUid`);
+      return null;
+    }
+
+    // Check if we've exceeded max retry count BEFORE doing any work
+    if (args.retryCount >= MAX_RETRY_COUNT) {
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionState,
+        {
+          submissionId: args.submissionId,
+          state: 'processing_timeout',
+          errorMessage: `Video processing timed out after ${MAX_RETRY_COUNT} attempts (${MAX_RETRY_COUNT * POLLING_INTERVAL_SECONDS} seconds). Cloudflare may be experiencing issues. Please check status manually.`,
+          pollingRetryCount: args.retryCount,
+        }
+      );
+      return null;
+    }
+
+    // Now do the actual work - check Cloudflare API
+    try {
+      const videoResponse = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${submission.cloudflareUid}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+          },
+        }
+      );
+
+      // Handle 404 specifically - video doesn't exist in Cloudflare
+      // This can happen if:
+      // 1. The upload never completed (video was never uploaded)
+      // 2. The video was deleted from Cloudflare
+      // 3. The cloudflareUid is incorrect or stale
+      if (videoResponse.status === 404) {
+        console.error(
+          `Video ${submission.cloudflareUid} not found in Cloudflare (404). State: ${submission.state}. This might be a stale UID or failed upload.`
+        );
+
+        // If we're in video_uploaded state but video doesn't exist, mark as failed
+        // This suggests the upload was marked complete but video doesn't exist in Cloudflare
+        if (submission.state === 'video_uploaded') {
+          await ctx.runMutation(
+            internal.submissionMutations.updateSubmissionState,
+            {
+              submissionId: args.submissionId,
+              state: 'failed_upload',
+              errorMessage:
+                'Video not found in Cloudflare. The upload may have failed or the video was deleted.',
+              pollingRetryCount: args.retryCount,
+            }
+          );
+          return null;
+        } else {
+          // If we're in initial or upload_url_generated state, the video might not exist yet
+          // This shouldn't happen if polling started correctly, but handle it gracefully
+          console.warn(
+            `Video ${submission.cloudflareUid} not found but state is ${submission.state}. Stopping polling.`
+          );
+          await ctx.runMutation(
+            internal.submissionMutations.updateSubmissionState,
+            {
+              submissionId: args.submissionId,
+              state: 'failed_upload',
+              errorMessage:
+                'Video not found in Cloudflare. Please try uploading again.',
+              pollingRetryCount: args.retryCount,
+            }
+          );
+          return null;
+        }
+      }
+
+      if (!videoResponse.ok) {
+        const errorText = await videoResponse.text();
+        console.error(
+          `Failed to get video status: ${videoResponse.status} ${errorText}`
+        );
+        // For other errors, schedule next check and continue polling
+        const nextRetryCount = args.retryCount + 1;
+        if (nextRetryCount < MAX_RETRY_COUNT) {
+          await ctx.scheduler.runAfter(
+            POLLING_INTERVAL_SECONDS,
+            internal.submissionActions.checkSubmissionVideoStatus,
+            {
+              submissionId: args.submissionId,
+              retryCount: nextRetryCount,
+            }
+          );
+        }
+        // Update retry count
+        await ctx.runMutation(
+          internal.submissionMutations.updateSubmissionState,
+          {
+            submissionId: args.submissionId,
+            state: submission.state,
+            pollingRetryCount: nextRetryCount,
+          }
+        );
+        return null;
+      }
+
+      const videoData = await videoResponse.json();
+
+      if (!videoData.success) {
+        console.error('Cloudflare API returned unsuccessful response');
+        // Schedule next check for temporary errors
+        const nextRetryCount = args.retryCount + 1;
+        if (nextRetryCount < MAX_RETRY_COUNT) {
+          await ctx.scheduler.runAfter(
+            POLLING_INTERVAL_SECONDS,
+            internal.submissionActions.checkSubmissionVideoStatus,
+            {
+              submissionId: args.submissionId,
+              retryCount: nextRetryCount,
+            }
+          );
+        }
+        // Update retry count
+        await ctx.runMutation(
+          internal.submissionMutations.updateSubmissionState,
+          {
+            submissionId: args.submissionId,
+            state: submission.state,
+            pollingRetryCount: nextRetryCount,
+          }
+        );
+        return null;
+      }
+
+      const video = videoData.result;
+      const status = video.status?.state;
+
+      // Check if video is ready
+      if (status === 'ready') {
+        // Update state to video_processed
+        await ctx.runMutation(
+          internal.submissionMutations.updateSubmissionState,
+          {
+            submissionId: args.submissionId,
+            state: 'video_processed',
+            pollingRetryCount: args.retryCount,
+          }
+        );
+
+        // Trigger download of 480p video
+        await ctx.scheduler.runAfter(
+          0,
+          internal.submissionActions.downloadSubmissionVideo480p,
+          {
+            submissionId: args.submissionId,
+            cloudflareUid: submission.cloudflareUid,
+          }
+        );
+      } else if (status === 'error') {
+        // Handle error state - stop polling
+        const errorCode = video.status?.errReasonCode || 'ERR_UNKNOWN';
+        const errorText = video.status?.errReasonText || 'Unknown error';
+        await ctx.runMutation(
+          internal.submissionMutations.updateSubmissionState,
+          {
+            submissionId: args.submissionId,
+            state: 'failed_compression',
+            errorMessage: `${errorCode}: ${errorText}`,
+            pollingRetryCount: args.retryCount,
+          }
+        );
+      } else {
+        // Video is still processing - schedule next check
+        const nextRetryCount = args.retryCount + 1;
+        if (nextRetryCount < MAX_RETRY_COUNT) {
+          await ctx.scheduler.runAfter(
+            POLLING_INTERVAL_SECONDS,
+            internal.submissionActions.checkSubmissionVideoStatus,
+            {
+              submissionId: args.submissionId,
+              retryCount: nextRetryCount,
+            }
+          );
+        }
+        // Update retry count
+        await ctx.runMutation(
+          internal.submissionMutations.updateSubmissionState,
+          {
+            submissionId: args.submissionId,
+            state: submission.state,
+            pollingRetryCount: nextRetryCount,
+          }
+        );
+      }
+    } catch (error) {
+      // If anything fails, log it and schedule next check if we haven't exceeded max retries
+      console.error('Error checking video status:', error);
+      const nextRetryCount = args.retryCount + 1;
+      if (nextRetryCount < MAX_RETRY_COUNT) {
+        await ctx.scheduler.runAfter(
+          POLLING_INTERVAL_SECONDS,
+          internal.submissionActions.checkSubmissionVideoStatus,
+          {
+            submissionId: args.submissionId,
+            retryCount: nextRetryCount,
+          }
+        );
+      }
+      // Update retry count
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionState,
+        {
+          submissionId: args.submissionId,
+          state: submission.state,
+          pollingRetryCount: nextRetryCount,
+        }
+      );
+    }
+
+    return null;
+  },
+});
+
+/**
+ * Download and downsize video from Cloudflare Stream for a submission using FFmpeg API.
+ */
+export const downloadSubmissionVideo480p = internalAction({
+  args: {
+    submissionId: v.id('submissions'),
+    cloudflareUid: v.string(),
+  },
+  returns: v.object({
+    downsizedVideoUrl: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    const ffmpegApiKey = process.env.FFMPEG_API_KEY;
+
+    if (!accountId || !apiToken) {
+      throw new Error(
+        'Cloudflare credentials not configured. Please set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN environment variables.'
+      );
+    }
+
+    if (!ffmpegApiKey) {
+      throw new Error(
+        'FFmpeg API key not configured. Please set FFMPEG_API_KEY environment variable.'
+      );
+    }
+
+    try {
+      // Request default MP4 download from Cloudflare Stream
+      const requestDownloadResponse = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${args.cloudflareUid}/downloads`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!requestDownloadResponse.ok) {
+        const errorText = await requestDownloadResponse.text();
+        throw new Error(
+          `Failed to request download: ${requestDownloadResponse.status} ${errorText}`
+        );
+      }
+
+      const requestDownloadData = await requestDownloadResponse.json();
+
+      if (!requestDownloadData.success) {
+        throw new Error('Cloudflare API returned unsuccessful response');
+      }
+
+      const downloadInfo = requestDownloadData.result.default;
+      const downloadUrl = downloadInfo.url;
+
+      // Poll until download is ready
+      let downloadReady = false;
+      let attempts = 0;
+      const maxAttempts = 60; // 5 minutes max (60 * 5 seconds)
+
+      while (!downloadReady && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
+
+        const checkDownloadResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${args.cloudflareUid}/downloads`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${apiToken}`,
+            },
+          }
+        );
+
+        if (checkDownloadResponse.ok) {
+          const checkData = await checkDownloadResponse.json();
+          if (
+            checkData.success &&
+            checkData.result.default?.status === 'ready'
+          ) {
+            downloadReady = true;
+          }
+        }
+
+        attempts++;
+      }
+
+      if (!downloadReady) {
+        throw new Error('Cloudflare download did not become ready in time');
+      }
+
+      // Download video from Cloudflare
+      const videoDownloadResponse = await fetch(downloadUrl);
+
+      if (!videoDownloadResponse.ok) {
+        throw new Error(
+          `Failed to download video from Cloudflare: ${videoDownloadResponse.status}`
+        );
+      }
+
+      const videoBlob = await videoDownloadResponse.blob();
+
+      // Upload video to FFmpeg API
+      const ffmpegFileResponse = await fetch(
+        'https://api.ffmpeg-api.com/file',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${ffmpegApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            file_name: `${args.cloudflareUid}_original.mp4`,
+          }),
+        }
+      );
+
+      if (!ffmpegFileResponse.ok) {
+        const errorText = await ffmpegFileResponse.text();
+        throw new Error(
+          `FFmpeg API file creation failed: ${ffmpegFileResponse.status} ${errorText}`
+        );
+      }
+
+      const ffmpegFileData = await ffmpegFileResponse.json();
+      const { file, upload } = ffmpegFileData;
+
+      // Upload the video file
+      const uploadResponse = await fetch(upload.url, {
+        method: 'PUT',
+        body: videoBlob,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(
+          `Failed to upload video to FFmpeg API: ${uploadResponse.status}`
+        );
+      }
+
+      // Process video to downsize to 480p
+      const ffmpegProcessResponse = await fetch(
+        'https://api.ffmpeg-api.com/ffmpeg/process',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${ffmpegApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            task: {
+              inputs: [{ file_path: file.file_path }],
+              outputs: [
+                {
+                  file: `${args.cloudflareUid}_480p.mp4`,
+                  options: [
+                    '-vf',
+                    'scale=-2:480',
+                    '-c:v',
+                    'libx264',
+                    '-crf',
+                    '23',
+                    '-preset',
+                    'medium',
+                    '-c:a',
+                    'copy',
+                  ],
+                },
+              ],
+            },
+          }),
+        }
+      );
+
+      if (!ffmpegProcessResponse.ok) {
+        const errorText = await ffmpegProcessResponse.text();
+        throw new Error(
+          `FFmpeg API processing failed: ${ffmpegProcessResponse.status} ${errorText}`
+        );
+      }
+
+      const ffmpegProcessData = await ffmpegProcessResponse.json();
+
+      // Get the downsized video download URL
+      const downsizedVideoUrl =
+        ffmpegProcessData[0]?.download_url ||
+        ffmpegProcessData.download_url ||
+        ffmpegProcessData.result?.[0]?.download_url;
+
+      if (!downsizedVideoUrl) {
+        throw new Error('FFmpeg API did not return download URL');
+      }
+
+      // Update submission record with downsized URL
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionWithDownsizedUrl,
+        {
+          submissionId: args.submissionId,
+          downsizedDownloadUrl: downsizedVideoUrl,
+        }
+      );
+
+      // Trigger AI analysis with the downsized video
+      await ctx.scheduler.runAfter(
+        0,
+        internal.submissionActions.analyzeSubmissionVideoWithGemini,
+        {
+          submissionId: args.submissionId,
+          videoUrl: downsizedVideoUrl,
+        }
+      );
+
+      return {
+        downsizedVideoUrl,
+      };
+    } catch (error) {
+      // Update submission state to failed_compression
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown compression error';
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionState,
+        {
+          submissionId: args.submissionId,
+          state: 'failed_compression',
+          errorMessage,
+        }
+      );
+      throw error;
+    }
+  },
+});
+
+/**
+ * Analyze submission video using Gemini Flash 2.0 via OpenRouter API.
+ */
+export const analyzeSubmissionVideoWithGemini = internalAction({
+  args: {
+    submissionId: v.id('submissions'),
+    videoUrl: v.string(),
+  },
+  returns: v.object({
+    analysis: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+
+    if (!openRouterApiKey) {
+      throw new Error(
+        'OpenRouter API key not configured. Please set OPENROUTER_API_KEY environment variable.'
+      );
+    }
+
+    try {
+      // Update state to video_sent_to_ai
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionState,
+        {
+          submissionId: args.submissionId,
+          state: 'video_sent_to_ai',
+        }
+      );
+
+      // Download the downsized video
+      const videoResponse = await fetch(args.videoUrl);
+
+      if (!videoResponse.ok) {
+        throw new Error(
+          `Failed to download downsized video: ${videoResponse.status}`
+        );
+      }
+
+      const videoBlob = await videoResponse.blob();
+      const videoBuffer = await videoBlob.arrayBuffer();
+      const videoBase64 = Buffer.from(videoBuffer).toString('base64');
+      const videoDataUrl = `data:video/mp4;base64,${videoBase64}`;
+
+      // Send video to Gemini Flash 2.0 via OpenRouter
+      const openRouterResponse = await fetch(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${openRouterApiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer':
+              process.env.OPENROUTER_HTTP_REFERER || 'https://influbot.com',
+            'X-Title': 'Influbot Video Analysis',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.0-flash-001',
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Analyze this video and provide a detailed analysis including: main content, key moments, visual elements, and any notable features. Be comprehensive and detailed.',
+                  },
+                  {
+                    type: 'video_url',
+                    video_url: {
+                      url: videoDataUrl,
+                    },
+                  },
+                ],
+              },
+            ],
+            max_tokens: 4000,
+          }),
+        }
+      );
+
+      if (!openRouterResponse.ok) {
+        const errorText = await openRouterResponse.text();
+        throw new Error(
+          `OpenRouter API failed: ${openRouterResponse.status} ${errorText}`
+        );
+      }
+
+      const openRouterData = await openRouterResponse.json();
+
+      const analysis =
+        openRouterData.choices?.[0]?.message?.content ||
+        openRouterData.choices?.[0]?.text ||
+        'Analysis not available';
+
+      // Update submission record with analysis and set state to video_analysed
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionWithAnalysis,
+        {
+          submissionId: args.submissionId,
+          analysis,
+        }
+      );
+
+      return {
+        analysis,
+      };
+    } catch (error) {
+      // Update submission state to failed_analysis
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown analysis error';
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionState,
+        {
+          submissionId: args.submissionId,
+          state: 'failed_analysis',
+          errorMessage,
+        }
+      );
+      throw error;
+    }
+  },
+});

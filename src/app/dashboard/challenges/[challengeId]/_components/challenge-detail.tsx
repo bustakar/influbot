@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
 import { CheckCircle2, Circle, Folder, Lock } from 'lucide-react';
 import Link from 'next/link';
 

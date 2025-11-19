@@ -55,6 +55,7 @@ export const getById = query({
               state: videoStateValidator,
               topic: v.optional(v.string()),
               topicGenerationError: v.optional(v.string()),
+              cloudflareUid: v.optional(v.string()),
               aiAnalysis: v.optional(v.string()),
               _creationTime: v.number(),
             }),
@@ -114,6 +115,7 @@ export const getById = query({
                 state: submission.state,
                 topic: submission.topic,
                 topicGenerationError: submission.topicGenerationError,
+                cloudflareUid: submission.cloudflareUid,
                 analysisResult: submission.analysisResult,
                 _creationTime: submission._creationTime,
               }
