@@ -56,7 +56,7 @@ export const getById = query({
               topic: v.optional(v.string()),
               topicGenerationError: v.optional(v.string()),
               cloudflareUid: v.optional(v.string()),
-              aiAnalysis: v.optional(v.string()),
+              analysisResult: v.optional(v.string()),
               _creationTime: v.number(),
             }),
             v.null()
@@ -102,9 +102,6 @@ export const getById = query({
         const submission =
           index < submissions.length ? submissions[index] : null;
 
-        // A submission is unlocked if:
-        // 1. It's completed (index < completedCount)
-        // 2. It's the next upcoming one (index === completedCount)
         const isUnlocked = index <= nextUnlockedIndex;
 
         return {

@@ -75,7 +75,6 @@ type SubmissionCardProps = {
     _id: Id<'submissions'>;
     state: VideoState;
     topic?: string;
-    analysisResult?: string;
     _creationTime: number;
   } | null;
   isLocked: boolean;
@@ -140,14 +139,6 @@ const SubmissionCard = ({
         ) : submission ? (
           <div className="space-y-3">
             {submission.topic && <p className="text-sm">{submission.topic}</p>}
-            {submission.analysisResult && (
-              <div className="mt-4 p-4 bg-muted rounded-lg">
-                <p className="text-sm font-semibold mb-2">AI Analysis:</p>
-                <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                  {submission.analysisResult}
-                </p>
-              </div>
-            )}
             <p className="text-sm text-muted-foreground">
               Submitted {new Date(submission._creationTime).toLocaleString()}
             </p>

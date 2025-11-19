@@ -503,7 +503,7 @@ export const checkSubmissionVideoStatus = internalAction({
 
         await ctx.scheduler.runAfter(
           0,
-          internal.submissionActions.downloadSubmissionVideo480p,
+          internal.submissionActions.getCompressedSubmissionVideoDownloadUrl,
           {
             submissionId: args.submissionId,
             cloudflareUid: submission.cloudflareUid,
@@ -571,9 +571,10 @@ export const checkSubmissionVideoStatus = internalAction({
 });
 
 /**
- * Download and downsize video from Cloudflare Stream for a submission using FFmpeg API.
+ * Download and compress video from Cloudflare Stream for a submission using FFmpeg API.
+ * Returns the download URL for the compressed video.
  */
-export const downloadSubmissionVideo480p = internalAction({
+export const getCompressedSubmissionVideoDownloadUrl = internalAction({
   args: {
     submissionId: v.id('submissions'),
     cloudflareUid: v.string(),
@@ -781,13 +782,13 @@ export const downloadSubmissionVideo480p = internalAction({
         }
       );
 
-      // Trigger AI analysis with the downsized video
+      // Trigger AI analysis with the compressed video
       await ctx.scheduler.runAfter(
         0,
         internal.submissionActions.analyzeSubmissionVideoWithGemini,
         {
           submissionId: args.submissionId,
-          videoUrl: downsizedVideoUrl,
+          compressedVideoUrl: downsizedVideoUrl,
         }
       );
 
@@ -812,22 +813,23 @@ export const downloadSubmissionVideo480p = internalAction({
 });
 
 /**
- * Analyze submission video using Gemini Flash 2.0 via OpenRouter API.
+ * Analyze submission video using Gemini API directly via Google Files API.
+ * Uploads compressed video to Google Files API and sends file URI to Gemini.
  */
 export const analyzeSubmissionVideoWithGemini = internalAction({
   args: {
     submissionId: v.id('submissions'),
-    videoUrl: v.string(),
+    compressedVideoUrl: v.string(),
   },
   returns: v.object({
     analysis: v.string(),
   }),
   handler: async (ctx, args) => {
-    const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+    const geminiApiKey = process.env.GEMINI_API_KEY;
 
-    if (!openRouterApiKey) {
+    if (!geminiApiKey) {
       throw new Error(
-        'OpenRouter API key not configured. Please set OPENROUTER_API_KEY environment variable.'
+        'Gemini API key not configured. Please set GEMINI_API_KEY environment variable.'
       );
     }
 
@@ -841,67 +843,163 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
         }
       );
 
-      // Download the downsized video
-      const videoResponse = await fetch(args.videoUrl);
+      // Download the compressed video
+      const videoResponse = await fetch(args.compressedVideoUrl);
 
       if (!videoResponse.ok) {
         throw new Error(
-          `Failed to download downsized video: ${videoResponse.status}`
+          `Failed to download compressed video: ${videoResponse.status}`
         );
       }
 
       const videoBlob = await videoResponse.blob();
       const videoBuffer = await videoBlob.arrayBuffer();
-      const videoBase64 = Buffer.from(videoBuffer).toString('base64');
-      const videoDataUrl = `data:video/mp4;base64,${videoBase64}`;
+      const videoBytes = Buffer.from(videoBuffer);
+      const videoSize = videoBytes.length;
+      const mimeType = 'video/mp4';
 
-      // Send video to Gemini Flash 2.0 via OpenRouter
-      const openRouterResponse = await fetch(
-        'https://openrouter.ai/api/v1/chat/completions',
+      // Step 1: Initiate resumable upload to Google Files API
+      const uploadInitResponse = await fetch(
+        'https://generativelanguage.googleapis.com/upload/v1beta/files',
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${openRouterApiKey}`,
+            'x-goog-api-key': geminiApiKey,
+            'X-Goog-Upload-Protocol': 'resumable',
+            'X-Goog-Upload-Command': 'start',
+            'X-Goog-Upload-Header-Content-Length': videoSize.toString(),
+            'X-Goog-Upload-Header-Content-Type': mimeType,
             'Content-Type': 'application/json',
-            'HTTP-Referer':
-              process.env.OPENROUTER_HTTP_REFERER || 'https://influbot.com',
-            'X-Title': 'Influbot Video Analysis',
           },
           body: JSON.stringify({
-            model: 'google/gemini-2.0-flash-001',
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: 'Analyze this video and provide a detailed analysis including: main content, key moments, visual elements, and any notable features. Be comprehensive and detailed.',
-                  },
-                  {
-                    type: 'video_url',
-                    video_url: {
-                      url: videoDataUrl,
-                    },
-                  },
-                ],
-              },
-            ],
-            max_tokens: 4000,
+            file: {
+              display_name: `submission_${args.submissionId}_compressed.mp4`,
+            },
           }),
         }
       );
 
-      if (!openRouterResponse.ok) {
-        const errorText = await openRouterResponse.text();
+      if (!uploadInitResponse.ok) {
+        const errorText = await uploadInitResponse.text();
+        throw new Error(
+          `Failed to initiate file upload: ${uploadInitResponse.status} ${errorText}`
+        );
+      }
+
+      const uploadUrl = uploadInitResponse.headers.get('x-goog-upload-url');
+      if (!uploadUrl) {
+        throw new Error('No upload URL returned from Google Files API');
+      }
+
+      // Step 2: Upload the video file
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Length': videoSize.toString(),
+          'X-Goog-Upload-Offset': '0',
+          'X-Goog-Upload-Command': 'upload, finalize',
+        },
+        body: videoBytes,
+      });
+
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        throw new Error(
+          `Failed to upload video file: ${uploadResponse.status} ${errorText}`
+        );
+      }
+
+      const fileInfo = await uploadResponse.json();
+      const fileUri = fileInfo.file?.uri;
+
+      if (!fileUri) {
+        throw new Error('No file URI returned from Google Files API');
+      }
+
+      // Extract file ID from URI (could be "files/abc123" or just "abc123" or full URL)
+      let fileId: string;
+      if (fileUri.includes('/')) {
+        fileId = fileUri.split('/').pop() || fileUri;
+      } else {
+        fileId = fileUri;
+      }
+
+      // Step 3: Poll for file processing status
+      let fileReady = false;
+      let attempts = 0;
+      const maxAttempts = 60; // 5 minutes max (60 * 5 seconds)
+
+      while (!fileReady && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
+
+        const fileStatusResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/files/${fileId}`,
+          {
+            method: 'GET',
+            headers: {
+              'x-goog-api-key': geminiApiKey,
+            },
+          }
+        );
+
+        if (fileStatusResponse.ok) {
+          const fileStatus = await fileStatusResponse.json();
+          const state = fileStatus.state || fileStatus.file?.state;
+          if (state === 'ACTIVE') {
+            fileReady = true;
+          } else if (state === 'FAILED') {
+            throw new Error(
+              `File processing failed: ${fileStatus.error?.message || fileStatus.file?.error?.message || 'Unknown error'}`
+            );
+          }
+        }
+
+        attempts++;
+      }
+
+      if (!fileReady) {
+        throw new Error('File did not become ready in time');
+      }
+
+      // Step 4: Send file URI to Gemini API for analysis
+      const geminiResponse = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+        {
+          method: 'POST',
+          headers: {
+            'x-goog-api-key': geminiApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    file_data: {
+                      mime_type: mimeType,
+                      file_uri: fileUri,
+                    },
+                  },
+                  {
+                    text: 'Analyze this video and provide a detailed analysis including: main content, key moments, visual elements, and any notable features. Be comprehensive and detailed.',
+                  },
+                ],
+              },
+            ],
+          }),
+        }
+      );
+
+      if (!geminiResponse.ok) {
+        const errorText = await geminiResponse.text();
+        let cleanError: string;
 
         // Check if response is HTML (Cloudflare error page)
-        let cleanError: string;
         if (
           errorText.trim().startsWith('<!DOCTYPE') ||
           errorText.trim().startsWith('<html')
         ) {
-          // It's an HTML error page, provide a cleaner message
-          cleanError = `OpenRouter API temporarily unavailable (${openRouterResponse.status}). Please try again later.`;
+          cleanError = `Gemini API temporarily unavailable (${geminiResponse.status}). Please try again later.`;
         } else {
           // Try to parse as JSON for structured errors
           try {
@@ -917,16 +1015,23 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
         }
 
         throw new Error(
-          `OpenRouter API failed: ${openRouterResponse.status} - ${cleanError}`
+          `Gemini API failed: ${geminiResponse.status} - ${cleanError}`
         );
       }
 
-      const openRouterData = await openRouterResponse.json();
+      const geminiData = await geminiResponse.json();
 
-      const analysis =
-        openRouterData.choices?.[0]?.message?.content ||
-        openRouterData.choices?.[0]?.text ||
-        'Analysis not available';
+      // Extract text from response - Gemini API returns candidates[0].content.parts[]
+      // where each part can have text property
+      let analysis = 'Analysis not available';
+      if (geminiData.candidates?.[0]?.content?.parts) {
+        const textParts = geminiData.candidates[0].content.parts
+          .filter((part: any) => part.text)
+          .map((part: any) => part.text);
+        if (textParts.length > 0) {
+          analysis = textParts.join('\n\n');
+        }
+      }
 
       // Update submission record with analysis and set state to video_analysed
       await ctx.runMutation(

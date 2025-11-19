@@ -78,7 +78,7 @@ export const retrySubmissionStep = action({
 
         await ctx.scheduler.runAfter(
           0,
-          internal.submissionActions.downloadSubmissionVideo480p,
+          internal.submissionActions.getCompressedSubmissionVideoDownloadUrl,
           {
             submissionId: args.submissionId,
             cloudflareUid: submission.cloudflareUid,
@@ -107,7 +107,7 @@ export const retrySubmissionStep = action({
           internal.submissionActions.analyzeSubmissionVideoWithGemini,
           {
             submissionId: args.submissionId,
-            videoUrl: submission.downsizedDownloadUrl,
+            compressedVideoUrl: submission.downsizedDownloadUrl,
           }
         );
         break;
