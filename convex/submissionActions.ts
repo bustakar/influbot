@@ -6,83 +6,138 @@ import { api, internal } from './_generated/api';
 import { action, internalAction } from './_generated/server';
 
 /**
- * Generate a topic idea for a submission using Gemini Flash 2.0 via OpenRouter.
- * This creates a topic suggestion based on the challenge's desired improvements and prompt.
+ * Generate a topic idea for a submission using Gemini API.
+ * This creates a topic suggestion based on the challenge's desired improvements, previous topics, and analysis results.
+ * Topics are progressively more difficult as the challenge progresses.
  */
 export const generateTopicForSubmission = internalAction({
   args: {
     submissionId: v.id('submissions'),
     challengeId: v.id('challenges'),
     previousTopics: v.array(v.string()),
+    previousAnalyses: v.array(v.string()),
     desiredImprovements: v.array(v.string()),
     specifyPrompt: v.string(),
+    currentDay: v.number(),
+    totalDays: v.number(),
   },
   returns: v.object({
     topic: v.string(),
   }),
   handler: async (ctx, args) => {
-    const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+    const geminiApiKey = process.env.GEMINI_API_KEY;
 
-    if (!openRouterApiKey) {
+    if (!geminiApiKey) {
       throw new Error(
-        'OpenRouter API key not configured. Please set OPENROUTER_API_KEY environment variable.'
+        'Gemini API key not configured. Please set GEMINI_API_KEY environment variable.'
       );
     }
 
     try {
-      // Create a prompt for topic generation based on challenge details
-      const previousTopicsList = args.previousTopics.join(', ');
-      const improvementsList = args.desiredImprovements.join(', ');
-      const topicPrompt = `Generate a specific, engaging topic idea for a video submission. 
-  
-  Context:
-  - Previous topics: ${previousTopicsList}
-  - The user wants to improve: ${improvementsList}
-  - Their specific goal: ${args.specifyPrompt}
-  
-  Generate a single, clear topic idea that would help them practice and improve in these areas. The topic should be:
-  1. Specific and actionable
-  2. Relevant to their improvement goals
-  3. Engaging and motivating
-  4. Suitable for a short video (2-5 minutes)
-  
-  Respond with ONLY the topic idea, nothing else. Keep it concise (1-2 sentences maximum).`;
+      // Calculate progress and difficulty level
+      const progress = args.currentDay / args.totalDays;
+      let difficultyLevel = 'Beginner';
+      let complexity =
+        'Simple, focus on getting comfortable in front of the camera.';
+      let constraints =
+        'No specific constraints - just be yourself and speak naturally.';
 
-      const openRouterResponse = await fetch(
-        'https://openrouter.ai/api/v1/chat/completions',
+      if (progress > 0.3) {
+        difficultyLevel = 'Intermediate';
+        complexity =
+          'Add one specific physical or vocal constraint (e.g., stand still, speak louder, maintain eye contact).';
+        constraints =
+          'Focus on one improvement area at a time. Add a specific technique to practice.';
+      }
+      if (progress > 0.7) {
+        difficultyLevel = 'Advanced';
+        complexity =
+          'Complex topics requiring combining multiple skills or rapid emotional shifts.';
+        constraints =
+          'Combine multiple improvement areas. Challenge yourself with more complex scenarios.';
+      }
+
+      // Build context from previous topics and analyses
+      let previousContext = '';
+      if (args.previousTopics.length > 0) {
+        previousContext += `\n\nPrevious Topics (${args.previousTopics.length}):\n`;
+        args.previousTopics.forEach((topic, idx) => {
+          previousContext += `${idx + 1}. ${topic}\n`;
+        });
+      }
+
+      if (args.previousAnalyses.length > 0) {
+        previousContext += `\n\nPrevious Analysis Results (${args.previousAnalyses.length}):\n`;
+        args.previousAnalyses.forEach((analysis, idx) => {
+          // Extract key feedback from analysis (first 200 chars)
+          const summary = analysis.substring(0, 200);
+          previousContext += `${idx + 1}. ${summary}...\n`;
+        });
+      }
+
+      const improvementsList = args.desiredImprovements.join(', ');
+
+      const topicPrompt = `You are an expert Public Speaking Coach and Curriculum Designer. Your goal is to generate the NEXT topic for a user's ${args.totalDays}-day video challenge.
+
+USER PROFILE:
+- Goal: ${args.specifyPrompt}
+- Wants to improve: ${improvementsList}
+- Current Day: ${args.currentDay} of ${args.totalDays} (${difficultyLevel} stage)
+- Progress: ${Math.round(progress * 100)}%${previousContext}
+
+CURRICULUM DESIGN PRINCIPLES:
+1. Progressive Difficulty: Start easy, gradually increase complexity
+2. Skill Building: Each topic should build on previous learnings
+3. Feedback Integration: If previous analyses showed weaknesses, create topics to practice those specific areas
+4. Engagement: Topics should be interesting and motivating
+
+DIFFICULTY GUIDELINES:
+- ${difficultyLevel} Stage: ${complexity}
+- Constraints: ${constraints}
+
+TOPIC GENERATION RULES:
+1. Design a topic appropriate for Day ${args.currentDay} (${difficultyLevel} level)
+2. Focus on areas: ${improvementsList}
+3. If previous analyses identified specific weaknesses, create a topic that directly addresses those
+4. Make it specific, actionable, and suitable for a 2-5 minute video
+5. Keep it engaging and motivating
+6. Avoid repeating previous topics
+
+OUTPUT FORMAT:
+Respond with ONLY the topic text. It should be:
+- A clear title/instruction (1-2 sentences maximum)
+- Under 300 characters
+- Actionable and specific
+- No explanations, just the topic itself`;
+
+      const geminiResponse = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${openRouterApiKey}`,
+            'x-goog-api-key': geminiApiKey,
             'Content-Type': 'application/json',
-            'HTTP-Referer':
-              process.env.OPENROUTER_HTTP_REFERER || 'https://influbot.com',
-            'X-Title': 'Influbot Topic Generation',
           },
           body: JSON.stringify({
-            model: 'google/gemini-2.0-flash-001',
-            messages: [
+            contents: [
               {
-                role: 'user',
-                content: topicPrompt,
+                parts: [{ text: topicPrompt }],
               },
             ],
-            // max_tokens: 200,
           }),
         }
       );
 
-      if (!openRouterResponse.ok) {
-        const errorText = await openRouterResponse.text();
+      if (!geminiResponse.ok) {
+        const errorText = await geminiResponse.text();
+        let cleanError: string;
 
         // Check if response is HTML (Cloudflare error page)
-        let cleanError: string;
         if (
           errorText.trim().startsWith('<!DOCTYPE') ||
           errorText.trim().startsWith('<html')
         ) {
-          // It's an HTML error page, provide a cleaner message
-          cleanError = `OpenRouter API temporarily unavailable (${openRouterResponse.status}). Please try again later.`;
+          cleanError = `Gemini API temporarily unavailable (${geminiResponse.status}). Please try again later.`;
         } else {
           // Try to parse as JSON for structured errors
           try {
@@ -98,16 +153,14 @@ export const generateTopicForSubmission = internalAction({
         }
 
         throw new Error(
-          `OpenRouter API failed: ${openRouterResponse.status} - ${cleanError}`
+          `Gemini API failed: ${geminiResponse.status} - ${cleanError}`
         );
       }
 
-      const openRouterData = await openRouterResponse.json();
+      const geminiData = await geminiResponse.json();
 
       const topic =
-        openRouterData.choices?.[0]?.message?.content ||
-        openRouterData.choices?.[0]?.text ||
-        null;
+        geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
 
       if (!topic || topic.trim() === '') {
         throw new Error('No topic returned from API');
@@ -188,18 +241,36 @@ export const retryTopicGeneration = action({
       throw new Error('Challenge not found');
     }
 
-    // Get previous topics from other submissions in this challenge
-    // We'll fetch the challenge which includes submission slots with topics
+    // Get previous topics and analyses from other submissions in this challenge
     const previousTopics: string[] = [];
+    const previousAnalyses: string[] = [];
+    let currentDay = 0;
+
     if (challenge.submissionSlots) {
       for (const slot of challenge.submissionSlots) {
-        if (
-          slot.submission &&
-          slot.submission.topic &&
-          slot.submission._id !== args.submissionId &&
-          !slot.submission.topicGenerationError
-        ) {
-          previousTopics.push(slot.submission.topic);
+        if (slot.submission && slot.submission._id !== args.submissionId) {
+          if (slot.submission.topic && !slot.submission.topicGenerationError) {
+            previousTopics.push(slot.submission.topic);
+          }
+          if (
+            slot.submission.analysisResult &&
+            slot.submission.state === 'video_analysed'
+          ) {
+            const result = slot.submission.analysisResult;
+            // Extract raw or summary for topic generation context
+            if (result.raw) {
+              previousAnalyses.push(result.raw);
+            } else if (result.summary) {
+              previousAnalyses.push(result.summary);
+            } else {
+              // Fallback to JSON string if neither exists
+              previousAnalyses.push(JSON.stringify(result));
+            }
+          }
+          // Count completed submissions to determine current day
+          if (slot.submission.state === 'video_analysed') {
+            currentDay++;
+          }
         }
       }
     }
@@ -212,8 +283,11 @@ export const retryTopicGeneration = action({
         submissionId: args.submissionId,
         challengeId: submission.challengeId,
         previousTopics,
+        previousAnalyses,
         desiredImprovements: challenge.desiredImprovements,
         specifyPrompt: challenge.specifyPrompt,
+        currentDay,
+        totalDays: challenge.requiredNumberOfSubmissions,
       }
     );
 
@@ -782,6 +856,30 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
         }
       );
 
+      // Get submission to fetch challenge info
+      const submission = await ctx.runQuery(
+        internal.submissions.getByIdInternal,
+        {
+          submissionId: args.submissionId,
+        }
+      );
+
+      if (!submission) {
+        throw new Error('Submission not found');
+      }
+
+      // Get challenge to fetch desired improvements
+      const challenge = await ctx.runQuery(
+        internal.challenges.getByIdInternal,
+        {
+          challengeId: submission.challengeId,
+        }
+      );
+
+      if (!challenge) {
+        throw new Error('Challenge not found');
+      }
+
       // Trigger AI analysis with the compressed video
       await ctx.scheduler.runAfter(
         0,
@@ -789,6 +887,7 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
         {
           submissionId: args.submissionId,
           compressedVideoUrl: downsizedVideoUrl,
+          desiredImprovements: challenge.desiredImprovements,
         }
       );
 
@@ -820,6 +919,7 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
   args: {
     submissionId: v.id('submissions'),
     compressedVideoUrl: v.string(),
+    desiredImprovements: v.array(v.string()),
   },
   returns: v.object({
     analysis: v.string(),
@@ -974,6 +1074,66 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
       }
 
       // Step 4: Send file URI to Gemini API for analysis
+      // Define all possible improvement areas
+      const allImprovementAreas = [
+        'Posture',
+        'Emotions',
+        'Fillers',
+        'Eye Contact',
+        'Voice Clarity',
+        'Body Language',
+        'Confidence',
+        'Storytelling',
+        'Energy Level',
+        'Authenticity',
+      ];
+
+      // Build scores object with all areas (user's desired + others)
+      const scoresSchema = allImprovementAreas
+        .map((area) => `"${area.toLowerCase().replace(/\s+/g, '_')}": number`)
+        .join(', ');
+
+      const analysisPrompt = `You are an expert Public Speaking Coach analyzing a video performance.
+
+USER'S GOALS: The user wants to improve: ${args.desiredImprovements.join(', ')}
+
+Analyze this video and provide a structured assessment. Focus on evaluating the user's performance in front of the camera, specifically looking at their public speaking skills.
+
+EVALUATION AREAS:
+- Posture: Body positioning, stance, physical presence
+- Emotions: Emotional expression, facial expressions, emotional range
+- Fillers: Use of filler words (um, uh, like, etc.)
+- Eye Contact: Directness, consistency, engagement with camera
+- Voice Clarity: Articulation, pronunciation, speech clarity
+- Body Language: Gestures, movements, physical expressiveness
+- Confidence: Overall confidence level, self-assurance
+- Storytelling: Narrative structure, engagement, flow
+- Energy Level: Enthusiasm, dynamism, energy
+- Authenticity: Genuineness, naturalness, being yourself
+
+Provide your response as a JSON object with the following exact structure:
+{
+  "scores": {
+    "posture": <number 1-10>,
+    "emotions": <number 1-10>,
+    "fillers": <number 1-10>,
+    "eye_contact": <number 1-10>,
+    "voice_clarity": <number 1-10>,
+    "body_language": <number 1-10>,
+    "confidence": <number 1-10>,
+    "storytelling": <number 1-10>,
+    "energy_level": <number 1-10>,
+    "authenticity": <number 1-10>,
+    "overall": <number 1-10>
+  },
+  "summary": "<3 lines max: Overall performance summary>",
+  "card_description": "<1 short sentence, max 10 words, for list view>",
+  "key_moments": ["<moment 1>", "<moment 2>", "<moment 3>"],
+  "improvement_tips": ["<tip 1>", "<tip 2>", "<tip 3>"]
+}
+
+IMPORTANT: Return ONLY valid JSON. Do not wrap in markdown code blocks. Do not include any text before or after the JSON.`;
+
       const geminiResponse = await fetch(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
         {
@@ -993,11 +1153,14 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
                     },
                   },
                   {
-                    text: 'Analyze this video and provide a detailed analysis including: main content, key moments, visual elements, and any notable features. Be comprehensive and detailed.',
+                    text: analysisPrompt,
                   },
                 ],
               },
             ],
+            generationConfig: {
+              response_mime_type: 'application/json',
+            },
           }),
         }
       );
@@ -1033,15 +1196,26 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
 
       const geminiData = await geminiResponse.json();
 
-      // Extract text from response - Gemini API returns candidates[0].content.parts[]
-      // where each part can have text property
+      // Extract JSON response - Gemini API returns candidates[0].content.parts[]
+      // With response_mime_type: "application/json", it should return JSON directly
       let analysis = 'Analysis not available';
+      let analysisJson: any = null;
+
       if (geminiData.candidates?.[0]?.content?.parts) {
         const textParts = geminiData.candidates[0].content.parts
           .filter((part: any) => part.text)
           .map((part: any) => part.text);
         if (textParts.length > 0) {
-          analysis = textParts.join('\n\n');
+          const responseText = textParts.join('\n\n');
+          try {
+            // Try to parse as JSON
+            analysisJson = JSON.parse(responseText);
+            // Store the JSON stringified version
+            analysis = JSON.stringify(analysisJson, null, 2);
+          } catch {
+            // If not JSON, store as text
+            analysis = responseText;
+          }
         }
       }
 

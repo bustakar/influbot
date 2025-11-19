@@ -27,7 +27,30 @@ export const submissionValidator = v.object({
   cloudflareUploadUrl: v.optional(v.string()),
   downsizedDownloadUrl: v.optional(v.string()),
   googleFileId: v.optional(v.string()),
-  analysisResult: v.optional(v.string()),
+  analysisResult: v.optional(
+    v.object({
+      raw: v.optional(v.string()), // Raw JSON string for backward compatibility
+      scores: v.optional(
+        v.object({
+          posture: v.optional(v.number()),
+          emotions: v.optional(v.number()),
+          fillers: v.optional(v.number()),
+          eye_contact: v.optional(v.number()),
+          voice_clarity: v.optional(v.number()),
+          body_language: v.optional(v.number()),
+          confidence: v.optional(v.number()),
+          storytelling: v.optional(v.number()),
+          energy_level: v.optional(v.number()),
+          authenticity: v.optional(v.number()),
+          overall: v.optional(v.number()),
+        })
+      ),
+      summary: v.optional(v.string()),
+      cardDescription: v.optional(v.string()),
+      keyMoments: v.optional(v.array(v.string())),
+      improvementTips: v.optional(v.array(v.string())),
+    })
+  ),
   pollingStartTime: v.optional(v.number()),
   pollingRetryCount: v.optional(v.number()),
 });

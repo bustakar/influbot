@@ -43,8 +43,11 @@ export const createChallenge = mutation({
           submissionId: firstSubmissionId,
           challengeId,
           previousTopics: [],
+          previousAnalyses: [],
           desiredImprovements: args.desiredImprovements,
           specifyPrompt: args.specifyPrompt,
+          currentDay: 0,
+          totalDays: args.requiredNumberOfSubmissions,
         }
       );
     }

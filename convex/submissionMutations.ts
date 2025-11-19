@@ -187,9 +187,66 @@ export const updateSubmissionWithAnalysis = internalMutation({
       return null;
     }
 
+    // Try to parse the analysis as JSON to extract structured data
+    let analysisResult: {
+      raw: string;
+      scores?: {
+        posture?: number;
+        emotions?: number;
+        fillers?: number;
+        eye_contact?: number;
+        voice_clarity?: number;
+        body_language?: number;
+        confidence?: number;
+        storytelling?: number;
+        energy_level?: number;
+        authenticity?: number;
+        overall?: number;
+      };
+      summary?: string;
+      cardDescription?: string;
+      keyMoments?: string[];
+      improvementTips?: string[];
+    } = {
+      raw: args.analysis,
+    };
+
+    try {
+      const parsed = JSON.parse(args.analysis);
+      if (parsed.scores) {
+        analysisResult.scores = {
+          posture: parsed.scores.posture,
+          emotions: parsed.scores.emotions,
+          fillers: parsed.scores.fillers,
+          eye_contact: parsed.scores.eye_contact,
+          voice_clarity: parsed.scores.voice_clarity,
+          body_language: parsed.scores.body_language,
+          confidence: parsed.scores.confidence,
+          storytelling: parsed.scores.storytelling,
+          energy_level: parsed.scores.energy_level,
+          authenticity: parsed.scores.authenticity,
+          overall: parsed.scores.overall,
+        };
+      }
+      if (parsed.summary) {
+        analysisResult.summary = parsed.summary;
+      }
+      if (parsed.card_description) {
+        analysisResult.cardDescription = parsed.card_description;
+      }
+      if (Array.isArray(parsed.key_moments)) {
+        analysisResult.keyMoments = parsed.key_moments;
+      }
+      if (Array.isArray(parsed.improvement_tips)) {
+        analysisResult.improvementTips = parsed.improvement_tips;
+      }
+    } catch {
+      // If parsing fails, just store as raw string (backward compatibility)
+    }
+
     await ctx.db.patch(args.submissionId, {
       state: 'video_analysed',
-      analysisResult: args.analysis,
+      analysisResult,
     });
 
     // Check if we need to create the next submission
@@ -217,7 +274,7 @@ export const updateSubmissionWithAnalysis = internalMutation({
 
       // If topic generation is enabled, trigger it for the new submission
       if (challenge.generateTopic) {
-        // Get previous topics from existing submissions (including the one that just completed)
+        // Get previous topics and analyses from existing submissions (including the one that just completed)
         const previousTopics = existingSubmissions
           .filter(
             (sub) =>
@@ -228,6 +285,32 @@ export const updateSubmissionWithAnalysis = internalMutation({
           .map((sub) => sub.topic!)
           .filter((topic): topic is string => topic !== undefined);
 
+        const previousAnalyses = existingSubmissions
+          .filter(
+            (sub) =>
+              sub.analysisResult &&
+              sub.state === 'video_analysed' &&
+              sub._id !== newSubmissionId // Exclude the new submission we just created
+          )
+          .map((sub) => {
+            const result = sub.analysisResult!;
+            // Extract raw or summary for topic generation context
+            if (result.raw) {
+              return result.raw;
+            }
+            if (result.summary) {
+              return result.summary;
+            }
+            // Fallback to JSON string if neither exists
+            return JSON.stringify(result);
+          })
+          .filter(
+            (analysis): analysis is string =>
+              analysis !== undefined && analysis !== null
+          );
+
+        const currentDay = existingSubmissions.length; // Day 0-indexed, so length is the next day
+
         await ctx.scheduler.runAfter(
           0,
           internal.submissionActions.generateTopicForSubmission,
@@ -235,8 +318,11 @@ export const updateSubmissionWithAnalysis = internalMutation({
             submissionId: newSubmissionId,
             challengeId: submission.challengeId,
             previousTopics,
+            previousAnalyses,
             desiredImprovements: challenge.desiredImprovements,
             specifyPrompt: challenge.specifyPrompt,
+            currentDay,
+            totalDays: challenge.requiredNumberOfSubmissions,
           }
         );
       }

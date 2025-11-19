@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import {
   Card,
+  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -181,64 +182,289 @@ const StatusBadge = ({ state, errorMessage }: StatusBadgeProps) => {
 };
 
 type AnalysisResultProps = {
-  analysisResult?: string;
+  analysisResult?: {
+    raw?: string;
+    scores?: {
+      posture?: number;
+      emotions?: number;
+      fillers?: number;
+      eye_contact?: number;
+      voice_clarity?: number;
+      body_language?: number;
+      confidence?: number;
+      storytelling?: number;
+      energy_level?: number;
+      authenticity?: number;
+      overall?: number;
+    };
+    summary?: string;
+    cardDescription?: string;
+    keyMoments?: string[];
+    improvementTips?: string[];
+  };
   state: VideoState;
 };
 
+const ScoreBar = ({ label, score }: { label: string; score?: number }) => {
+  if (score === undefined) return null;
+
+  const getColor = (score: number) => {
+    if (score >= 8) return 'bg-green-500';
+    if (score >= 6) return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-medium capitalize">
+          {label.replace(/_/g, ' ')}
+        </span>
+        <span className="font-semibold">{score}/10</span>
+      </div>
+      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+        <div
+          className={`h-2 rounded-full transition-all ${getColor(score)}`}
+          style={{ width: `${(score / 10) * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+};
+
 const AnalysisResult = ({ analysisResult, state }: AnalysisResultProps) => {
-  if (analysisResult) {
-    return (
-      <>
-        <Separator />
-        <div className="space-y-2">
-          <h3 className="text-lg font-semibold">AI Analysis</h3>
-          <div className="p-4 bg-muted rounded-lg">
-            <p className="text-sm whitespace-pre-wrap leading-relaxed">
-              {analysisResult}
+  if (!analysisResult) {
+    // Show processing states
+    if (
+      state === 'video_processed' ||
+      state === 'video_compressed' ||
+      state === 'video_sent_to_ai'
+    ) {
+      return (
+        <>
+          <Separator />
+          <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              {state === 'video_processed' &&
+                'Video is being compressed. This may take a few moments...'}
+              {state === 'video_compressed' &&
+                'Video is being sent to AI for analysis. This may take a few moments...'}
+              {state === 'video_sent_to_ai' &&
+                'AI analysis is being generated. This may take a few moments...'}
             </p>
           </div>
-        </div>
-      </>
-    );
+        </>
+      );
+    }
+
+    if (state === 'processing_timeout') {
+      return (
+        <>
+          <Separator />
+          <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              Video processing timed out. The video may still be processing on
+              Cloudflare&apos;s side.
+            </p>
+          </div>
+        </>
+      );
+    }
+
+    return null;
   }
 
-  if (
-    state === 'video_processed' ||
-    state === 'video_compressed' ||
-    state === 'video_sent_to_ai'
-  ) {
+  // Check if we have structured data
+  const hasStructuredData =
+    analysisResult.scores ||
+    analysisResult.summary ||
+    analysisResult.cardDescription ||
+    analysisResult.keyMoments ||
+    analysisResult.improvementTips;
+
+  if (hasStructuredData || analysisResult.raw) {
     return (
       <>
         <Separator />
-        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <p className="text-sm text-blue-800 dark:text-blue-200">
-            {state === 'video_processed' &&
-              'Video is being compressed. This may take a few moments...'}
-            {state === 'video_compressed' &&
-              'Video is being sent to AI for analysis. This may take a few moments...'}
-            {state === 'video_sent_to_ai' &&
-              'AI analysis is being generated. This may take a few moments...'}
-          </p>
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-lg font-semibold">AI Analysis</h3>
+            {analysisResult.cardDescription && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {analysisResult.cardDescription}
+              </p>
+            )}
+          </div>
+
+          {/* Overall Score */}
+          {analysisResult.scores?.overall !== undefined && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Overall Score</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  <div className="text-4xl font-bold">
+                    {analysisResult.scores.overall}
+                    <span className="text-lg text-muted-foreground">/10</span>
+                  </div>
+                  <div className="flex-1">
+                    <ScoreBar
+                      label="Overall"
+                      score={analysisResult.scores.overall}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Detailed Scores */}
+          {analysisResult.scores && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Detailed Scores</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {analysisResult.scores.posture !== undefined && (
+                    <ScoreBar
+                      label="Posture"
+                      score={analysisResult.scores.posture}
+                    />
+                  )}
+                  {analysisResult.scores.emotions !== undefined && (
+                    <ScoreBar
+                      label="Emotions"
+                      score={analysisResult.scores.emotions}
+                    />
+                  )}
+                  {analysisResult.scores.fillers !== undefined && (
+                    <ScoreBar
+                      label="Fillers"
+                      score={analysisResult.scores.fillers}
+                    />
+                  )}
+                  {analysisResult.scores.eye_contact !== undefined && (
+                    <ScoreBar
+                      label="Eye Contact"
+                      score={analysisResult.scores.eye_contact}
+                    />
+                  )}
+                  {analysisResult.scores.voice_clarity !== undefined && (
+                    <ScoreBar
+                      label="Voice Clarity"
+                      score={analysisResult.scores.voice_clarity}
+                    />
+                  )}
+                  {analysisResult.scores.body_language !== undefined && (
+                    <ScoreBar
+                      label="Body Language"
+                      score={analysisResult.scores.body_language}
+                    />
+                  )}
+                  {analysisResult.scores.confidence !== undefined && (
+                    <ScoreBar
+                      label="Confidence"
+                      score={analysisResult.scores.confidence}
+                    />
+                  )}
+                  {analysisResult.scores.storytelling !== undefined && (
+                    <ScoreBar
+                      label="Storytelling"
+                      score={analysisResult.scores.storytelling}
+                    />
+                  )}
+                  {analysisResult.scores.energy_level !== undefined && (
+                    <ScoreBar
+                      label="Energy Level"
+                      score={analysisResult.scores.energy_level}
+                    />
+                  )}
+                  {analysisResult.scores.authenticity !== undefined && (
+                    <ScoreBar
+                      label="Authenticity"
+                      score={analysisResult.scores.authenticity}
+                    />
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Summary */}
+          {analysisResult.summary && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                  {analysisResult.summary}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Key Moments */}
+          {analysisResult.keyMoments &&
+            analysisResult.keyMoments.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Key Moments</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {analysisResult.keyMoments.map((moment, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm">
+                        <span className="text-muted-foreground mt-1">•</span>
+                        <span>{moment}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
+
+          {/* Improvement Tips */}
+          {analysisResult.improvementTips &&
+            analysisResult.improvementTips.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Improvement Tips</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {analysisResult.improvementTips.map((tip, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm">
+                        <span className="text-muted-foreground mt-1">•</span>
+                        <span>{tip}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
+
+          {/* Fallback to raw JSON if no structured data but raw exists */}
+          {!hasStructuredData && analysisResult.raw && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Raw Analysis</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="p-4 bg-muted rounded-lg">
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed font-mono">
+                    {analysisResult.raw}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </>
     );
   }
-
-  if (state === 'processing_timeout') {
-    return (
-      <>
-        <Separator />
-        <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-          <p className="text-sm text-yellow-800 dark:text-yellow-200">
-            Video processing timed out. The video may still be processing on
-            Cloudflare&apos;s side.
-          </p>
-        </div>
-      </>
-    );
-  }
-
-  return null;
 };
 
 export default function SubmissionDetail({ id }: { id: Id<'submissions'> }) {

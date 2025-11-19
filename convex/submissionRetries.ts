@@ -102,12 +102,25 @@ export const retrySubmissionStep = action({
           throw new Error('Cannot retry: No video URL available');
         }
 
+        // Get challenge to fetch desired improvements
+        const challenge = await ctx.runQuery(
+          internal.challenges.getByIdInternal,
+          {
+            challengeId: submission.challengeId,
+          }
+        );
+
+        if (!challenge) {
+          throw new Error('Challenge not found');
+        }
+
         await ctx.scheduler.runAfter(
           0,
           internal.submissionActions.analyzeSubmissionVideoWithGemini,
           {
             submissionId: args.submissionId,
             compressedVideoUrl: submission.downsizedDownloadUrl,
+            desiredImprovements: challenge.desiredImprovements,
           }
         );
         break;
