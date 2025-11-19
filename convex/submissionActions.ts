@@ -74,8 +74,31 @@ export const generateTopicForSubmission = internalAction({
 
       if (!openRouterResponse.ok) {
         const errorText = await openRouterResponse.text();
+
+        // Check if response is HTML (Cloudflare error page)
+        let cleanError: string;
+        if (
+          errorText.trim().startsWith('<!DOCTYPE') ||
+          errorText.trim().startsWith('<html')
+        ) {
+          // It's an HTML error page, provide a cleaner message
+          cleanError = `OpenRouter API temporarily unavailable (${openRouterResponse.status}). Please try again later.`;
+        } else {
+          // Try to parse as JSON for structured errors
+          try {
+            const errorJson = JSON.parse(errorText);
+            cleanError =
+              errorJson.error?.message ||
+              errorJson.message ||
+              errorText.substring(0, 200);
+          } catch {
+            // Not JSON, use first 200 chars
+            cleanError = errorText.substring(0, 200);
+          }
+        }
+
         throw new Error(
-          `OpenRouter API failed: ${openRouterResponse.status} ${errorText}`
+          `OpenRouter API failed: ${openRouterResponse.status} - ${cleanError}`
         );
       }
 
@@ -298,7 +321,7 @@ export const checkSubmissionVideoStatus = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const MAX_RETRY_COUNT = 10;
+    const MAX_RETRY_COUNT = 20; // Increased to allow for page reloads and longer processing
     const POLLING_INTERVAL_SECONDS = 30;
 
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -310,7 +333,6 @@ export const checkSubmissionVideoStatus = internalAction({
       );
     }
 
-    // Get submission record to check cloudflareUid
     const submission = await ctx.runQuery(
       internal.submissions.getByIdInternal,
       {
@@ -328,7 +350,6 @@ export const checkSubmissionVideoStatus = internalAction({
       return null;
     }
 
-    // Check if we've exceeded max retry count BEFORE doing any work
     if (args.retryCount >= MAX_RETRY_COUNT) {
       await ctx.runMutation(
         internal.submissionMutations.updateSubmissionState,
@@ -342,7 +363,6 @@ export const checkSubmissionVideoStatus = internalAction({
       return null;
     }
 
-    // Now do the actual work - check Cloudflare API
     try {
       const videoResponse = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${submission.cloudflareUid}`,
@@ -354,24 +374,41 @@ export const checkSubmissionVideoStatus = internalAction({
         }
       );
 
-      // Handle 404 specifically - video doesn't exist in Cloudflare
-      // This can happen if:
-      // 1. The upload never completed (video was never uploaded)
-      // 2. The video was deleted from Cloudflare
-      // 3. The cloudflareUid is incorrect or stale
       if (videoResponse.status === 404) {
         console.error(
-          `Video ${submission.cloudflareUid} not found in Cloudflare (404). State: ${submission.state}. This might be a stale UID or failed upload.`
+          `Video ${submission.cloudflareUid} not found in Cloudflare (404). State: ${submission.state}.`
         );
 
-        // If we're in video_uploaded state but video doesn't exist, mark as failed
-        // This suggests the upload was marked complete but video doesn't exist in Cloudflare
         if (submission.state === 'video_uploaded') {
+          if (args.retryCount < 3) {
+            console.log(
+              "Video 404'd but treating as temporary for first few retries"
+            );
+            const nextRetryCount = args.retryCount + 1;
+            await ctx.scheduler.runAfter(
+              POLLING_INTERVAL_SECONDS,
+              internal.submissionActions.checkSubmissionVideoStatus,
+              {
+                submissionId: args.submissionId,
+                retryCount: nextRetryCount,
+              }
+            );
+            await ctx.runMutation(
+              internal.submissionMutations.updateSubmissionState,
+              {
+                submissionId: args.submissionId,
+                state: submission.state,
+                pollingRetryCount: nextRetryCount,
+              }
+            );
+            return null;
+          }
+
           await ctx.runMutation(
             internal.submissionMutations.updateSubmissionState,
             {
               submissionId: args.submissionId,
-              state: 'failed_upload',
+              state: 'video_uploaded', // Keep current state, set error
               errorMessage:
                 'Video not found in Cloudflare. The upload may have failed or the video was deleted.',
               pollingRetryCount: args.retryCount,
@@ -379,8 +416,6 @@ export const checkSubmissionVideoStatus = internalAction({
           );
           return null;
         } else {
-          // If we're in initial or upload_url_generated state, the video might not exist yet
-          // This shouldn't happen if polling started correctly, but handle it gracefully
           console.warn(
             `Video ${submission.cloudflareUid} not found but state is ${submission.state}. Stopping polling.`
           );
@@ -388,7 +423,7 @@ export const checkSubmissionVideoStatus = internalAction({
             internal.submissionMutations.updateSubmissionState,
             {
               submissionId: args.submissionId,
-              state: 'failed_upload',
+              state: 'video_uploaded', // Keep current state, set error
               errorMessage:
                 'Video not found in Cloudflare. Please try uploading again.',
               pollingRetryCount: args.retryCount,
@@ -415,7 +450,7 @@ export const checkSubmissionVideoStatus = internalAction({
             }
           );
         }
-        // Update retry count
+
         await ctx.runMutation(
           internal.submissionMutations.updateSubmissionState,
           {
@@ -430,8 +465,6 @@ export const checkSubmissionVideoStatus = internalAction({
       const videoData = await videoResponse.json();
 
       if (!videoData.success) {
-        console.error('Cloudflare API returned unsuccessful response');
-        // Schedule next check for temporary errors
         const nextRetryCount = args.retryCount + 1;
         if (nextRetryCount < MAX_RETRY_COUNT) {
           await ctx.scheduler.runAfter(
@@ -443,7 +476,7 @@ export const checkSubmissionVideoStatus = internalAction({
             }
           );
         }
-        // Update retry count
+
         await ctx.runMutation(
           internal.submissionMutations.updateSubmissionState,
           {
@@ -458,9 +491,7 @@ export const checkSubmissionVideoStatus = internalAction({
       const video = videoData.result;
       const status = video.status?.state;
 
-      // Check if video is ready
       if (status === 'ready') {
-        // Update state to video_processed
         await ctx.runMutation(
           internal.submissionMutations.updateSubmissionState,
           {
@@ -470,7 +501,6 @@ export const checkSubmissionVideoStatus = internalAction({
           }
         );
 
-        // Trigger download of 480p video
         await ctx.scheduler.runAfter(
           0,
           internal.submissionActions.downloadSubmissionVideo480p,
@@ -480,20 +510,18 @@ export const checkSubmissionVideoStatus = internalAction({
           }
         );
       } else if (status === 'error') {
-        // Handle error state - stop polling
         const errorCode = video.status?.errReasonCode || 'ERR_UNKNOWN';
         const errorText = video.status?.errReasonText || 'Unknown error';
         await ctx.runMutation(
           internal.submissionMutations.updateSubmissionState,
           {
             submissionId: args.submissionId,
-            state: 'failed_compression',
+            state: 'video_uploaded', // Keep current state, set error
             errorMessage: `${errorCode}: ${errorText}`,
             pollingRetryCount: args.retryCount,
           }
         );
       } else {
-        // Video is still processing - schedule next check
         const nextRetryCount = args.retryCount + 1;
         if (nextRetryCount < MAX_RETRY_COUNT) {
           await ctx.scheduler.runAfter(
@@ -505,7 +533,7 @@ export const checkSubmissionVideoStatus = internalAction({
             }
           );
         }
-        // Update retry count
+
         await ctx.runMutation(
           internal.submissionMutations.updateSubmissionState,
           {
@@ -516,7 +544,6 @@ export const checkSubmissionVideoStatus = internalAction({
         );
       }
     } catch (error) {
-      // If anything fails, log it and schedule next check if we haven't exceeded max retries
       console.error('Error checking video status:', error);
       const nextRetryCount = args.retryCount + 1;
       if (nextRetryCount < MAX_RETRY_COUNT) {
@@ -529,7 +556,6 @@ export const checkSubmissionVideoStatus = internalAction({
           }
         );
       }
-      // Update retry count
       await ctx.runMutation(
         internal.submissionMutations.updateSubmissionState,
         {
@@ -737,12 +763,21 @@ export const downloadSubmissionVideo480p = internalAction({
         throw new Error('FFmpeg API did not return download URL');
       }
 
-      // Update submission record with downsized URL
+      // Update submission record with downsized URL and set state to video_compressed
       await ctx.runMutation(
         internal.submissionMutations.updateSubmissionWithDownsizedUrl,
         {
           submissionId: args.submissionId,
           downsizedDownloadUrl: downsizedVideoUrl,
+        }
+      );
+
+      // Update state to video_compressed before triggering AI
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionState,
+        {
+          submissionId: args.submissionId,
+          state: 'video_compressed',
         }
       );
 
@@ -760,14 +795,14 @@ export const downloadSubmissionVideo480p = internalAction({
         downsizedVideoUrl,
       };
     } catch (error) {
-      // Update submission state to failed_compression
+      // Keep current state, set error message
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown compression error';
       await ctx.runMutation(
         internal.submissionMutations.updateSubmissionState,
         {
           submissionId: args.submissionId,
-          state: 'failed_compression',
+          state: 'video_processed', // Keep current state, set error
           errorMessage,
         }
       );
@@ -858,8 +893,31 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
 
       if (!openRouterResponse.ok) {
         const errorText = await openRouterResponse.text();
+
+        // Check if response is HTML (Cloudflare error page)
+        let cleanError: string;
+        if (
+          errorText.trim().startsWith('<!DOCTYPE') ||
+          errorText.trim().startsWith('<html')
+        ) {
+          // It's an HTML error page, provide a cleaner message
+          cleanError = `OpenRouter API temporarily unavailable (${openRouterResponse.status}). Please try again later.`;
+        } else {
+          // Try to parse as JSON for structured errors
+          try {
+            const errorJson = JSON.parse(errorText);
+            cleanError =
+              errorJson.error?.message ||
+              errorJson.message ||
+              errorText.substring(0, 200);
+          } catch {
+            // Not JSON, use first 200 chars
+            cleanError = errorText.substring(0, 200);
+          }
+        }
+
         throw new Error(
-          `OpenRouter API failed: ${openRouterResponse.status} ${errorText}`
+          `OpenRouter API failed: ${openRouterResponse.status} - ${cleanError}`
         );
       }
 
@@ -883,14 +941,14 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
         analysis,
       };
     } catch (error) {
-      // Update submission state to failed_analysis
+      // Keep current state, set error message
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown analysis error';
       await ctx.runMutation(
         internal.submissionMutations.updateSubmissionState,
         {
           submissionId: args.submissionId,
-          state: 'failed_analysis',
+          state: 'video_sent_to_ai', // Keep current state, set error
           errorMessage,
         }
       );

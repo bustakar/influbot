@@ -122,19 +122,15 @@ const StatusBadge = ({ state, errorMessage }: StatusBadgeProps) => {
       case 'upload_url_generated':
         return 'Upload URL Generated';
       case 'video_uploaded':
-        return 'Video Uploaded';
+        return errorMessage ? 'Upload Failed' : 'Video Uploaded';
       case 'video_processed':
-        return 'Processing Video';
+        return errorMessage ? 'Compression Failed' : 'Processing Video';
+      case 'video_compressed':
+        return 'Video Compressed';
       case 'video_sent_to_ai':
-        return 'Analyzing Video';
+        return errorMessage ? 'Analysis Failed' : 'Analyzing Video';
       case 'video_analysed':
         return 'Analysis Complete';
-      case 'failed_upload':
-        return 'Upload Failed';
-      case 'failed_compression':
-        return 'Compression Failed';
-      case 'failed_analysis':
-        return 'Analysis Failed';
       case 'processing_timeout':
         return 'Processing Timeout';
       default:
@@ -142,17 +138,19 @@ const StatusBadge = ({ state, errorMessage }: StatusBadgeProps) => {
     }
   };
 
-  const getStateBadgeColor = (state: VideoState): string => {
+  const getStateBadgeColor = (
+    state: VideoState,
+    errorMessage?: string
+  ): string => {
+    if (errorMessage || state === 'processing_timeout') {
+      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+    }
     switch (state) {
       case 'video_analysed':
         return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      case 'failed_upload':
-      case 'failed_compression':
-      case 'failed_analysis':
-      case 'processing_timeout':
-        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
       case 'video_sent_to_ai':
       case 'video_processed':
+      case 'video_compressed':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
@@ -163,15 +161,13 @@ const StatusBadge = ({ state, errorMessage }: StatusBadgeProps) => {
     <div className="flex items-center gap-2">
       {state === 'video_analysed' ? (
         <CheckCircle2 className="h-5 w-5 text-green-600" />
-      ) : ['failed_upload', 'failed_compression', 'failed_analysis'].includes(
-          state
-        ) ? (
+      ) : errorMessage || state === 'processing_timeout' ? (
         <Circle className="h-5 w-5 text-red-600" />
       ) : (
         <Circle className="h-5 w-5 text-blue-600" />
       )}
       <span
-        className={`px-3 py-1 rounded-full text-xs font-semibold ${getStateBadgeColor(state)}`}
+        className={`px-3 py-1 rounded-full text-xs font-semibold ${getStateBadgeColor(state, errorMessage)}`}
       >
         {getStateLabel(state)}
       </span>
@@ -206,26 +202,22 @@ const AnalysisResult = ({ analysisResult, state }: AnalysisResultProps) => {
     );
   }
 
-  if (state === 'video_sent_to_ai' || state === 'video_processed') {
+  if (
+    state === 'video_processed' ||
+    state === 'video_compressed' ||
+    state === 'video_sent_to_ai'
+  ) {
     return (
       <>
         <Separator />
         <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
           <p className="text-sm text-blue-800 dark:text-blue-200">
-            Analysis is being generated. This may take a few moments...
-          </p>
-        </div>
-      </>
-    );
-  }
-
-  if (state === 'failed_analysis') {
-    return (
-      <>
-        <Separator />
-        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-          <p className="text-sm text-red-800 dark:text-red-200">
-            Analysis failed. Please try again.
+            {state === 'video_processed' &&
+              'Video is being compressed. This may take a few moments...'}
+            {state === 'video_compressed' &&
+              'Video is being sent to AI for analysis. This may take a few moments...'}
+            {state === 'video_sent_to_ai' &&
+              'AI analysis is being generated. This may take a few moments...'}
           </p>
         </div>
       </>
@@ -287,6 +279,7 @@ export default function SubmissionDetail({ id }: { id: Id<'submissions'> }) {
         cloudflareUid={submission.cloudflareUid}
         state={submission.state}
         submissionId={submission._id}
+        errorMessage={submission.errorMessage}
       />
 
       <AnalysisResult

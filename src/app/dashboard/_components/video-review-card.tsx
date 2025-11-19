@@ -40,12 +40,6 @@ function getStateLabel(state: VideoState): string {
       return 'Analyzing Video';
     case 'video_analysed':
       return 'Analysis Complete';
-    case 'failed_upload':
-      return 'Upload Failed';
-    case 'failed_compression':
-      return 'Compression Failed';
-    case 'failed_analysis':
-      return 'Analysis Failed';
     case 'processing_timeout':
       return 'Processing Timeout';
     default:
@@ -57,9 +51,6 @@ function getStateBadgeColor(state: VideoState): string {
   switch (state) {
     case 'video_analysed':
       return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-    case 'failed_upload':
-    case 'failed_compression':
-    case 'failed_analysis':
     case 'processing_timeout':
       return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
     case 'video_sent_to_ai':
@@ -162,8 +153,6 @@ export function VideoReviewCard({ video }: VideoReviewCardProps) {
     'video_processed',
     'video_sent_to_ai',
     'video_analysed',
-    'failed_compression',
-    'failed_analysis',
     'processing_timeout',
   ].includes(video.state);
 
@@ -183,25 +172,6 @@ export function VideoReviewCard({ video }: VideoReviewCardProps) {
             >
               {getStateLabel(video.state)}
             </span>
-            {video.state === 'failed_upload' && (
-              <Button size="sm" variant="outline" onClick={handleRetryUpload}>
-                Retry Upload
-              </Button>
-            )}
-            {video.state === 'failed_compression' && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleRetryCompression}
-              >
-                Retry Compression
-              </Button>
-            )}
-            {video.state === 'failed_analysis' && (
-              <Button size="sm" variant="outline" onClick={handleRetryAnalysis}>
-                Retry Analysis
-              </Button>
-            )}
             {video.state === 'processing_timeout' && (
               <Button size="sm" variant="outline" onClick={handleCheckStatus}>
                 Check Status

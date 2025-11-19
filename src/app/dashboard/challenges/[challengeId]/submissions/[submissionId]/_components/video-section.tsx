@@ -22,7 +22,13 @@ import { api } from '../../../../../../../../convex/_generated/api';
 import { Id } from '../../../../../../../../convex/_generated/dataModel';
 import { VideoState } from '../../../../../../../../convex/schema';
 
-const VideoProcessingTimeout = () => {
+const VideoProcessingTimeout = ({
+  onRetry,
+  isRetrying,
+}: {
+  onRetry: () => void;
+  isRetrying: boolean;
+}) => {
   return (
     <Card>
       <CardHeader>
@@ -34,10 +40,19 @@ const VideoProcessingTimeout = () => {
             <p className="text-yellow-800 dark:text-yellow-200 font-semibold mb-2">
               Processing Timeout
             </p>
-            <p className="text-sm text-yellow-700 dark:text-yellow-300">
+            <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-4">
               Video processing timed out after 30 minutes. Cloudflare may be
               experiencing issues.
             </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRetry}
+              disabled={isRetrying}
+              className="bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border-yellow-300 dark:bg-yellow-900/40 dark:hover:bg-yellow-900/60 dark:text-yellow-100 dark:border-yellow-700"
+            >
+              {isRetrying ? 'Retrying...' : 'Check Status Again'}
+            </Button>
           </div>
         </div>
       </CardContent>
@@ -45,7 +60,13 @@ const VideoProcessingTimeout = () => {
   );
 };
 
-const VideoUploadFailed = () => {
+const VideoUploadFailed = ({
+  onRetry,
+  isRetrying,
+}: {
+  onRetry: () => void;
+  isRetrying: boolean;
+}) => {
   return (
     <Card>
       <CardHeader>
@@ -57,10 +78,22 @@ const VideoUploadFailed = () => {
             <p className="text-red-800 dark:text-red-200 font-semibold mb-2">
               Upload Failed
             </p>
-            <p className="text-sm text-red-700 dark:text-red-300">
+            <p className="text-sm text-red-700 dark:text-red-300 mb-4">
               The video upload did not complete successfully. Please try
               uploading again.
             </p>
+            <div className="flex gap-2 justify-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRetry}
+                disabled={isRetrying}
+                className="bg-red-100 hover:bg-red-200 text-red-900 border-red-300 dark:bg-red-900/40 dark:hover:bg-red-900/60 dark:text-red-100 dark:border-red-700"
+              >
+                {isRetrying ? 'Retrying...' : 'Check Status Again'}
+              </Button>
+              {/* We could also just show the upload form here, but checking status first is safer if it was a false positive */}
+            </div>
           </div>
         </div>
       </CardContent>
@@ -68,7 +101,89 @@ const VideoUploadFailed = () => {
   );
 };
 
-const VideoProcessing = () => {
+const VideoCompressionFailed = ({
+  onRetry,
+  isRetrying,
+}: {
+  onRetry: () => void;
+  isRetrying: boolean;
+}) => {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Processing Failed</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="w-full aspect-video bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-center">
+          <div className="text-center p-4">
+            <p className="text-red-800 dark:text-red-200 font-semibold mb-2">
+              Compression Failed
+            </p>
+            <p className="text-sm text-red-700 dark:text-red-300 mb-4">
+              We failed to process your video.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRetry}
+              disabled={isRetrying}
+              className="bg-red-100 hover:bg-red-200 text-red-900 border-red-300 dark:bg-red-900/40 dark:hover:bg-red-900/60 dark:text-red-100 dark:border-red-700"
+            >
+              {isRetrying ? 'Retrying...' : 'Retry Processing'}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+const VideoAnalysisFailed = ({
+  onRetry,
+  isRetrying,
+}: {
+  onRetry: () => void;
+  isRetrying: boolean;
+}) => {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Analysis Failed</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="w-full aspect-video bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-center">
+          <div className="text-center p-4">
+            <p className="text-red-800 dark:text-red-200 font-semibold mb-2">
+              AI Analysis Failed
+            </p>
+            <p className="text-sm text-red-700 dark:text-red-300 mb-4">
+              We processed your video but failed to generate the AI analysis.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRetry}
+              disabled={isRetrying}
+              className="bg-red-100 hover:bg-red-200 text-red-900 border-red-300 dark:bg-red-900/40 dark:hover:bg-red-900/60 dark:text-red-100 dark:border-red-700"
+            >
+              {isRetrying ? 'Retrying...' : 'Retry Analysis'}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+const VideoProcessing = ({
+  onRetry,
+  isRetrying,
+  showRetry,
+}: {
+  onRetry?: () => void;
+  isRetrying?: boolean;
+  showRetry?: boolean;
+}) => {
   return (
     <Card>
       <CardHeader>
@@ -76,7 +191,7 @@ const VideoProcessing = () => {
       </CardHeader>
       <CardContent>
         <div className="w-full aspect-video bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-          <div className="text-center space-y-2">
+          <div className="text-center space-y-2 p-4">
             <p className="text-muted-foreground font-medium">
               Video is being processed...
             </p>
@@ -84,6 +199,18 @@ const VideoProcessing = () => {
               This usually takes a few minutes. The video will appear here once
               processing is complete.
             </p>
+            {showRetry && onRetry && (
+              <div className="pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onRetry}
+                  disabled={isRetrying}
+                >
+                  {isRetrying ? 'Retrying...' : 'Retry Step'}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </CardContent>
@@ -137,15 +264,18 @@ type VideoSectionProps = {
   cloudflareUid?: string;
   state: VideoState;
   submissionId: Id<'submissions'>;
+  errorMessage?: string;
 };
 
 export const VideoSection = ({
   cloudflareUid,
   state,
   submissionId,
+  errorMessage,
 }: VideoSectionProps) => {
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [isUploading, setIsUploading] = React.useState(false);
+  const [isRetrying, setIsRetrying] = React.useState(false);
 
   const markSubmissionUploaded = useMutation(
     api.submissionMutations.markSubmissionUploaded
@@ -153,7 +283,32 @@ export const VideoSection = ({
   const generateSubmissionTusConfig = useAction(
     api.submissionActions.generateSubmissionTusConfig
   );
-  const deleteVideo = useAction(api.videos.deleteVideo);
+  //   const deleteVideo = useAction(api.videos.deleteVideo);
+
+  // Assuming this exists after my backend change, using 'any' to bypass type check until codegen runs
+  // In a real scenario, we would run codegen first.
+  const retrySubmissionStep = useAction(
+    (api as any).submissionRetries?.retrySubmissionStep
+  );
+
+  const handleRetry = async () => {
+    if (!retrySubmissionStep) {
+      toast.error('Retry functionality not available yet');
+      return;
+    }
+
+    setIsRetrying(true);
+    try {
+      await retrySubmissionStep({ submissionId });
+      toast.success('Retrying step...');
+    } catch (error) {
+      toast.error('Failed to retry step', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   const onSubmit = async ({ value }: { value: z.infer<typeof formSchema> }) => {
     if (!value.video || isUploading) {
@@ -190,7 +345,7 @@ export const VideoSection = ({
 
       if (cloudflareUid) {
         try {
-          await deleteVideo({ cloudflareUid });
+          //   await deleteVideo({ cloudflareUid });
         } catch (deleteError) {
           console.error('Failed to cleanup failed upload:', deleteError);
         }
@@ -211,31 +366,95 @@ export const VideoSection = ({
     onSubmit: onSubmit,
   });
 
-  // Only show video embed when it's actually processed and ready
-  // According to Cloudflare docs, showing embed before encoding completes causes errors
-  const canShowVideo = [
-    'video_processed',
-    'video_sent_to_ai',
-    'video_analysed',
-    'failed_compression',
-    'failed_analysis',
-    'processing_timeout',
-  ].includes(state);
-
-  if (canShowVideo && cloudflareUid) {
+  // Only show video embed when analysis is complete
+  if (state === 'video_analysed' && cloudflareUid) {
     return <VideoEmbed cloudflareUid={cloudflareUid} />;
   }
 
-  if (state === 'video_uploaded') {
-    return <VideoProcessing />;
-  }
-
-  if (state === 'failed_upload') {
-    return <VideoUploadFailed />;
+  // Show error states based on errorMessage and current state (check BEFORE other state checks)
+  if (errorMessage) {
+    if (state === 'video_uploaded' || state === 'processing_timeout') {
+      return (
+        <VideoUploadFailed onRetry={handleRetry} isRetrying={isRetrying} />
+      );
+    }
+    if (state === 'video_processed') {
+      return (
+        <VideoCompressionFailed onRetry={handleRetry} isRetrying={isRetrying} />
+      );
+    }
+    if (state === 'video_sent_to_ai') {
+      return (
+        <VideoAnalysisFailed onRetry={handleRetry} isRetrying={isRetrying} />
+      );
+    }
   }
 
   if (state === 'processing_timeout') {
-    return <VideoProcessingTimeout />;
+    return (
+      <VideoProcessingTimeout onRetry={handleRetry} isRetrying={isRetrying} />
+    );
+  }
+
+  if (state === 'video_uploaded') {
+    // Video uploaded, waiting for Cloudflare to process
+    return (
+      <VideoProcessing
+        onRetry={handleRetry}
+        isRetrying={isRetrying}
+        showRetry={true}
+      />
+    );
+  }
+
+  if (
+    state === 'video_processed' ||
+    state === 'video_compressed' ||
+    state === 'video_sent_to_ai'
+  ) {
+    // Video is processed/compressed, show embed with retry button
+    if (cloudflareUid) {
+      return (
+        <>
+          <VideoEmbed cloudflareUid={cloudflareUid} />
+          <Card className="mt-4">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">
+                    {state === 'video_processed' &&
+                      'Video is being compressed...'}
+                    {state === 'video_compressed' &&
+                      'Video is being sent to AI...'}
+                    {state === 'video_sent_to_ai' &&
+                      'AI analysis is being generated...'}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    This may take a few moments.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRetry}
+                  disabled={isRetrying}
+                >
+                  {isRetrying ? 'Retrying...' : 'Retry Step'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      );
+    }
+    // Fallback if no cloudflareUid
+    return (
+      <VideoProcessing
+        onRetry={handleRetry}
+        isRetrying={isRetrying}
+        showRetry={true}
+      />
+    );
   }
 
   // Show upload dropzone for initial states

@@ -8,11 +8,9 @@ export const videoStateValidator = v.union(
   v.literal('upload_url_generated'),
   v.literal('video_uploaded'),
   v.literal('video_processed'),
+  v.literal('video_compressed'),
   v.literal('video_sent_to_ai'),
   v.literal('video_analysed'),
-  v.literal('failed_upload'),
-  v.literal('failed_compression'),
-  v.literal('failed_analysis'),
   v.literal('processing_timeout')
 );
 

@@ -70,8 +70,8 @@ export const markSubmissionUploaded = mutation({
 
     await ctx.db.patch(args.submissionId, {
       state: 'video_uploaded',
-      pollingStartTime: Date.now(), // Track when polling started
-      pollingRetryCount: 0, // Initialize retry count
+      pollingStartTime: Date.now(),
+      pollingRetryCount: 0,
     });
 
     await ctx.scheduler.runAfter(
