@@ -147,7 +147,32 @@ export const updateSubmissionWithDownsizedUrl = internalMutation({
 });
 
 /**
+ * Update submission with Google Files API file ID.
+ */
+export const updateSubmissionGoogleFileId = internalMutation({
+  args: {
+    submissionId: v.id('submissions'),
+    googleFileId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const submission = await ctx.db.get(args.submissionId);
+    if (!submission) {
+      console.warn(`Submission with id ${args.submissionId} not found`);
+      return null;
+    }
+
+    await ctx.db.patch(args.submissionId, {
+      googleFileId: args.googleFileId,
+    });
+
+    return null;
+  },
+});
+
+/**
  * Update submission with AI analysis result and set state to video_analysed.
+ * Also creates the next submission if needed.
  */
 export const updateSubmissionWithAnalysis = internalMutation({
   args: {
@@ -166,6 +191,56 @@ export const updateSubmissionWithAnalysis = internalMutation({
       state: 'video_analysed',
       analysisResult: args.analysis,
     });
+
+    // Check if we need to create the next submission
+    const challenge = await ctx.db.get(submission.challengeId);
+    if (!challenge) {
+      console.warn(`Challenge with id ${submission.challengeId} not found`);
+      return null;
+    }
+
+    // Count existing submissions for this challenge
+    const existingSubmissions = await ctx.db
+      .query('submissions')
+      .withIndex('by_challengeId', (q) =>
+        q.eq('challengeId', submission.challengeId)
+      )
+      .collect();
+
+    // If we haven't reached the required number, create a new submission
+    if (existingSubmissions.length < challenge.requiredNumberOfSubmissions) {
+      const newSubmissionId = await ctx.db.insert('submissions', {
+        userId: submission.userId,
+        challengeId: submission.challengeId,
+        state: 'initial',
+      });
+
+      // If topic generation is enabled, trigger it for the new submission
+      if (challenge.generateTopic) {
+        // Get previous topics from existing submissions (including the one that just completed)
+        const previousTopics = existingSubmissions
+          .filter(
+            (sub) =>
+              sub.topic &&
+              !sub.topicGenerationError &&
+              sub._id !== newSubmissionId // Exclude the new submission we just created
+          )
+          .map((sub) => sub.topic!)
+          .filter((topic): topic is string => topic !== undefined);
+
+        await ctx.scheduler.runAfter(
+          0,
+          internal.submissionActions.generateTopicForSubmission,
+          {
+            submissionId: newSubmissionId,
+            challengeId: submission.challengeId,
+            previousTopics,
+            desiredImprovements: challenge.desiredImprovements,
+            specifyPrompt: challenge.specifyPrompt,
+          }
+        );
+      }
+    }
 
     return null;
   },

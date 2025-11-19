@@ -924,6 +924,18 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
         fileId = fileUri;
       }
 
+      // Store the Google file ID in the submission for later deletion
+      await ctx.runMutation(
+        internal.submissionMutations.updateSubmissionGoogleFileId,
+        {
+          submissionId: args.submissionId,
+          googleFileId: fileId,
+        }
+      );
+
+      // Keep fileId in scope for deletion after analysis
+      const googleFileIdForDeletion = fileId;
+
       // Step 3: Poll for file processing status
       let fileReady = false;
       let attempts = 0;
@@ -1041,6 +1053,34 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
           analysis,
         }
       );
+
+      // Delete the file from Google Files API after analysis is complete
+      if (googleFileIdForDeletion) {
+        try {
+          const deleteResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/files/${googleFileIdForDeletion}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'x-goog-api-key': geminiApiKey,
+              },
+            }
+          );
+
+          if (!deleteResponse.ok && deleteResponse.status !== 404) {
+            // Log error but don't fail - file might already be deleted
+            console.warn(
+              `Failed to delete Google file ${googleFileIdForDeletion}: ${deleteResponse.status}`
+            );
+          }
+        } catch (error) {
+          // Log error but don't fail - deletion is best effort
+          console.warn(
+            `Error deleting Google file ${googleFileIdForDeletion}:`,
+            error
+          );
+        }
+      }
 
       return {
         analysis,

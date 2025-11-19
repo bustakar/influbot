@@ -66,6 +66,7 @@ export const getByIdInternal = internalQuery({
       cloudflareUid: v.optional(v.string()),
       cloudflareUploadUrl: v.optional(v.string()),
       downsizedDownloadUrl: v.optional(v.string()),
+      googleFileId: v.optional(v.string()),
       analysisResult: v.optional(v.string()),
       pollingStartTime: v.optional(v.number()),
       pollingRetryCount: v.optional(v.number()),
