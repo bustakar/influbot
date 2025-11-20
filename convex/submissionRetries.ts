@@ -1,6 +1,7 @@
 'use node';
 
 import { v } from 'convex/values';
+
 import { api, internal } from './_generated/api';
 import { action } from './_generated/server';
 
@@ -99,7 +100,7 @@ export const retrySubmissionStep = action({
         );
 
         if (!submission.downsizedDownloadUrl) {
-          throw new Error('Cannot retry: No video URL available');
+          throw new Error('Cannot retry: No Gemini file URI available');
         }
 
         // Get challenge to fetch desired improvements
@@ -119,7 +120,7 @@ export const retrySubmissionStep = action({
           internal.submissionActions.analyzeSubmissionVideoWithGemini,
           {
             submissionId: args.submissionId,
-            compressedVideoUrl: submission.downsizedDownloadUrl,
+            geminiFileUri: submission.downsizedDownloadUrl, // This now contains the Gemini file URI
             desiredImprovements: challenge.desiredImprovements,
           }
         );

@@ -1,6 +1,7 @@
 'use node';
 
 import { v } from 'convex/values';
+import { GoogleAuth } from 'google-auth-library';
 
 import { api, internal } from './_generated/api';
 import { action, internalAction } from './_generated/server';
@@ -645,8 +646,8 @@ export const checkSubmissionVideoStatus = internalAction({
 });
 
 /**
- * Download and compress video from Cloudflare Stream for a submission using FFmpeg API.
- * Returns the download URL for the compressed video.
+ * Compress video from Cloudflare Stream and upload to Gemini Files API
+ * using Cloud Run service. Returns the Gemini file URI.
  */
 export const getCompressedSubmissionVideoDownloadUrl = internalAction({
   args: {
@@ -654,12 +655,14 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
     cloudflareUid: v.string(),
   },
   returns: v.object({
-    downsizedVideoUrl: v.string(),
+    geminiFileUri: v.string(),
   }),
   handler: async (ctx, args) => {
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-    const ffmpegApiKey = process.env.FFMPEG_API_KEY;
+    const runUrl = process.env.RUN_URL;
+    const credsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+    const apiKey = process.env.VIDEO_API_KEY; // Optional
 
     if (!accountId || !apiToken) {
       throw new Error(
@@ -667,14 +670,14 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
       );
     }
 
-    if (!ffmpegApiKey) {
+    if (!runUrl || !credsJson) {
       throw new Error(
-        'FFmpeg API key not configured. Please set FFMPEG_API_KEY environment variable.'
+        'Cloud Run service not configured. Please set RUN_URL and GOOGLE_APPLICATION_CREDENTIALS_JSON environment variables.'
       );
     }
 
     try {
-      // Request default MP4 download from Cloudflare Stream
+      // Step 1: Request default MP4 download from Cloudflare Stream
       const requestDownloadResponse = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${args.cloudflareUid}/downloads`,
         {
@@ -702,7 +705,7 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
       const downloadInfo = requestDownloadData.result.default;
       const downloadUrl = downloadInfo.url;
 
-      // Poll until download is ready
+      // Step 2: Poll until download is ready
       let downloadReady = false;
       let attempts = 0;
       const maxAttempts = 60; // 5 minutes max (60 * 5 seconds)
@@ -737,117 +740,72 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
         throw new Error('Cloudflare download did not become ready in time');
       }
 
-      // Download video from Cloudflare
-      const videoDownloadResponse = await fetch(downloadUrl);
-
-      if (!videoDownloadResponse.ok) {
-        throw new Error(
-          `Failed to download video from Cloudflare: ${videoDownloadResponse.status}`
-        );
-      }
-
-      const videoBlob = await videoDownloadResponse.blob();
-
-      // Upload video to FFmpeg API
-      const ffmpegFileResponse = await fetch(
-        'https://api.ffmpeg-api.com/file',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Basic ${ffmpegApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            file_name: `${args.cloudflareUid}_original.mp4`,
-          }),
-        }
-      );
-
-      if (!ffmpegFileResponse.ok) {
-        const errorText = await ffmpegFileResponse.text();
-        throw new Error(
-          `FFmpeg API file creation failed: ${ffmpegFileResponse.status} ${errorText}`
-        );
-      }
-
-      const ffmpegFileData = await ffmpegFileResponse.json();
-      const { file, upload } = ffmpegFileData;
-
-      // Upload the video file
-      const uploadResponse = await fetch(upload.url, {
-        method: 'PUT',
-        body: videoBlob,
+      // Step 3: Call Cloud Run service to compress and upload to Gemini Files API
+      // For Cloud Run, we need to use target audience (the service URL) without scopes
+      const auth = new GoogleAuth({
+        credentials: JSON.parse(credsJson),
       });
 
-      if (!uploadResponse.ok) {
+      const client = await auth.getIdTokenClient(runUrl);
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (apiKey) {
+        headers['x-api-key'] = apiKey;
+      }
+
+      const compressResponse = await client.request({
+        url: `${runUrl}/compress-to-gemini`,
+        method: 'POST',
+        headers,
+        data: {
+          downloadUrl,
+          width: 480,
+          crf: 24,
+          preset: 'medium',
+          fps: 10,
+          audioBitrate: '96k',
+          displayName: `submission_${args.submissionId}_480p.mp4`,
+        },
+        timeout: 1000 * 60 * 55,
+      });
+
+      const compressData = compressResponse.data as {
+        id: string;
+        uri: string;
+        displayName?: string;
+        mimeType?: string;
+        sizeBytes?: number;
+        elapsedMs?: number;
+      };
+
+      if (!compressData.id || !compressData.uri) {
         throw new Error(
-          `Failed to upload video to FFmpeg API: ${uploadResponse.status}`
+          'Cloud Run service did not return valid file ID or URI'
         );
       }
 
-      // Process video to downsize to 480p
-      const ffmpegProcessResponse = await fetch(
-        'https://api.ffmpeg-api.com/ffmpeg/process',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Basic ${ffmpegApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            task: {
-              inputs: [{ file_path: file.file_path }],
-              outputs: [
-                {
-                  file: `${args.cloudflareUid}_480p.mp4`,
-                  options: [
-                    '-vf',
-                    'scale=-2:480',
-                    '-c:v',
-                    'libx264',
-                    '-crf',
-                    '23',
-                    '-preset',
-                    'medium',
-                    '-c:a',
-                    'copy',
-                  ],
-                },
-              ],
-            },
-          }),
-        }
-      );
-
-      if (!ffmpegProcessResponse.ok) {
-        const errorText = await ffmpegProcessResponse.text();
-        throw new Error(
-          `FFmpeg API processing failed: ${ffmpegProcessResponse.status} ${errorText}`
-        );
+      // Extract file ID from URI (could be "files/abc123" or just "abc123")
+      let fileId: string;
+      if (compressData.id.includes('/')) {
+        fileId = compressData.id.split('/').pop() || compressData.id;
+      } else {
+        fileId = compressData.id;
       }
 
-      const ffmpegProcessData = await ffmpegProcessResponse.json();
-
-      // Get the downsized video download URL
-      const downsizedVideoUrl =
-        ffmpegProcessData[0]?.download_url ||
-        ffmpegProcessData.download_url ||
-        ffmpegProcessData.result?.[0]?.download_url;
-
-      if (!downsizedVideoUrl) {
-        throw new Error('FFmpeg API did not return download URL');
-      }
-
-      // Update submission record with downsized URL and set state to video_compressed
+      // Step 4: Update submission record with Gemini file info
       await ctx.runMutation(
-        internal.submissionMutations.updateSubmissionWithDownsizedUrl,
+        internal.submissionMutations.updateSubmissionWithGeminiFile,
         {
           submissionId: args.submissionId,
-          downsizedDownloadUrl: downsizedVideoUrl,
+          geminiFileUri: compressData.uri,
+          geminiFileId: fileId,
         }
       );
 
-      // Update state to video_compressed before triggering AI
+      // Step 5: Update state to video_compressed
       await ctx.runMutation(
         internal.submissionMutations.updateSubmissionState,
         {
@@ -856,7 +814,7 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
         }
       );
 
-      // Get submission to fetch challenge info
+      // Step 6: Get challenge info and trigger AI analysis
       const submission = await ctx.runQuery(
         internal.submissions.getByIdInternal,
         {
@@ -868,7 +826,6 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
         throw new Error('Submission not found');
       }
 
-      // Get challenge to fetch desired improvements
       const challenge = await ctx.runQuery(
         internal.challenges.getByIdInternal,
         {
@@ -880,19 +837,19 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
         throw new Error('Challenge not found');
       }
 
-      // Trigger AI analysis with the compressed video
+      // Trigger AI analysis with the Gemini file URI
       await ctx.scheduler.runAfter(
         0,
         internal.submissionActions.analyzeSubmissionVideoWithGemini,
         {
           submissionId: args.submissionId,
-          compressedVideoUrl: downsizedVideoUrl,
+          geminiFileUri: compressData.uri,
           desiredImprovements: challenge.desiredImprovements,
         }
       );
 
       return {
-        downsizedVideoUrl,
+        geminiFileUri: compressData.uri,
       };
     } catch (error) {
       // Keep current state, set error message
@@ -912,13 +869,13 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
 });
 
 /**
- * Analyze submission video using Gemini API directly via Google Files API.
- * Uploads compressed video to Google Files API and sends file URI to Gemini.
+ * Analyze submission video using Gemini API.
+ * Uses the Gemini file URI that was already uploaded by Cloud Run service.
  */
 export const analyzeSubmissionVideoWithGemini = internalAction({
   args: {
     submissionId: v.id('submissions'),
-    compressedVideoUrl: v.string(),
+    geminiFileUri: v.string(), // Changed from compressedVideoUrl
     desiredImprovements: v.array(v.string()),
   },
   returns: v.object({
@@ -943,103 +900,22 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
         }
       );
 
-      // Download the compressed video
-      const videoResponse = await fetch(args.compressedVideoUrl);
-
-      if (!videoResponse.ok) {
-        throw new Error(
-          `Failed to download compressed video: ${videoResponse.status}`
-        );
-      }
-
-      const videoBlob = await videoResponse.blob();
-      const videoBuffer = await videoBlob.arrayBuffer();
-      const videoBytes = Buffer.from(videoBuffer);
-      const videoSize = videoBytes.length;
-      const mimeType = 'video/mp4';
-
-      // Step 1: Initiate resumable upload to Google Files API
-      const uploadInitResponse = await fetch(
-        'https://generativelanguage.googleapis.com/upload/v1beta/files',
-        {
-          method: 'POST',
-          headers: {
-            'x-goog-api-key': geminiApiKey,
-            'X-Goog-Upload-Protocol': 'resumable',
-            'X-Goog-Upload-Command': 'start',
-            'X-Goog-Upload-Header-Content-Length': videoSize.toString(),
-            'X-Goog-Upload-Header-Content-Type': mimeType,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            file: {
-              display_name: `submission_${args.submissionId}_compressed.mp4`,
-            },
-          }),
-        }
-      );
-
-      if (!uploadInitResponse.ok) {
-        const errorText = await uploadInitResponse.text();
-        throw new Error(
-          `Failed to initiate file upload: ${uploadInitResponse.status} ${errorText}`
-        );
-      }
-
-      const uploadUrl = uploadInitResponse.headers.get('x-goog-upload-url');
-      if (!uploadUrl) {
-        throw new Error('No upload URL returned from Google Files API');
-      }
-
-      // Step 2: Upload the video file
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Length': videoSize.toString(),
-          'X-Goog-Upload-Offset': '0',
-          'X-Goog-Upload-Command': 'upload, finalize',
-        },
-        body: videoBytes,
-      });
-
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        throw new Error(
-          `Failed to upload video file: ${uploadResponse.status} ${errorText}`
-        );
-      }
-
-      const fileInfo = await uploadResponse.json();
-      const fileUri = fileInfo.file?.uri;
-
-      if (!fileUri) {
-        throw new Error('No file URI returned from Google Files API');
-      }
-
-      // Extract file ID from URI (could be "files/abc123" or just "abc123" or full URL)
+      // Extract file ID from URI for polling
       let fileId: string;
-      if (fileUri.includes('/')) {
-        fileId = fileUri.split('/').pop() || fileUri;
+      if (args.geminiFileUri.includes('/files/')) {
+        fileId = args.geminiFileUri.split('/files/')[1].split('/')[0];
+      } else if (args.geminiFileUri.includes('files/')) {
+        fileId = args.geminiFileUri.split('files/')[1].split('/')[0];
       } else {
-        fileId = fileUri;
+        throw new Error(
+          `Invalid Gemini file URI format: ${args.geminiFileUri}`
+        );
       }
 
-      // Store the Google file ID in the submission for later deletion
-      await ctx.runMutation(
-        internal.submissionMutations.updateSubmissionGoogleFileId,
-        {
-          submissionId: args.submissionId,
-          googleFileId: fileId,
-        }
-      );
-
-      // Keep fileId in scope for deletion after analysis
-      const googleFileIdForDeletion = fileId;
-
-      // Step 3: Poll for file processing status
+      // Poll for file processing status (Cloud Run should have uploaded it, but verify it's ACTIVE)
       let fileReady = false;
       let attempts = 0;
-      const maxAttempts = 60; // 5 minutes max (60 * 5 seconds)
+      const maxAttempts = 30; // 2.5 minutes max (30 * 5 seconds)
 
       while (!fileReady && attempts < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
@@ -1073,26 +949,7 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
         throw new Error('File did not become ready in time');
       }
 
-      // Step 4: Send file URI to Gemini API for analysis
-      // Define all possible improvement areas
-      const allImprovementAreas = [
-        'Posture',
-        'Emotions',
-        'Fillers',
-        'Eye Contact',
-        'Voice Clarity',
-        'Body Language',
-        'Confidence',
-        'Storytelling',
-        'Energy Level',
-        'Authenticity',
-      ];
-
-      // Build scores object with all areas (user's desired + others)
-      const scoresSchema = allImprovementAreas
-        .map((area) => `"${area.toLowerCase().replace(/\s+/g, '_')}": number`)
-        .join(', ');
-
+      // Send file URI to Gemini API for analysis
       const analysisPrompt = `You are an expert Public Speaking Coach analyzing a video performance.
 
 USER'S GOALS: The user wants to improve: ${args.desiredImprovements.join(', ')}
@@ -1148,8 +1005,8 @@ IMPORTANT: Return ONLY valid JSON. Do not wrap in markdown code blocks. Do not i
                 parts: [
                   {
                     file_data: {
-                      mime_type: mimeType,
-                      file_uri: fileUri,
+                      mime_type: 'video/mp4',
+                      file_uri: args.geminiFileUri,
                     },
                   },
                   {
@@ -1199,12 +1056,12 @@ IMPORTANT: Return ONLY valid JSON. Do not wrap in markdown code blocks. Do not i
       // Extract JSON response - Gemini API returns candidates[0].content.parts[]
       // With response_mime_type: "application/json", it should return JSON directly
       let analysis = 'Analysis not available';
-      let analysisJson: any = null;
+      let analysisJson: Record<string, unknown> | null = null;
 
       if (geminiData.candidates?.[0]?.content?.parts) {
         const textParts = geminiData.candidates[0].content.parts
-          .filter((part: any) => part.text)
-          .map((part: any) => part.text);
+          .filter((part: { text?: string }) => part.text)
+          .map((part: { text?: string }) => part.text!);
         if (textParts.length > 0) {
           const responseText = textParts.join('\n\n');
           try {
@@ -1224,37 +1081,9 @@ IMPORTANT: Return ONLY valid JSON. Do not wrap in markdown code blocks. Do not i
         internal.submissionMutations.updateSubmissionWithAnalysis,
         {
           submissionId: args.submissionId,
-          analysis,
+          analysis: analysis,
         }
       );
-
-      // Delete the file from Google Files API after analysis is complete
-      if (googleFileIdForDeletion) {
-        try {
-          const deleteResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/files/${googleFileIdForDeletion}`,
-            {
-              method: 'DELETE',
-              headers: {
-                'x-goog-api-key': geminiApiKey,
-              },
-            }
-          );
-
-          if (!deleteResponse.ok && deleteResponse.status !== 404) {
-            // Log error but don't fail - file might already be deleted
-            console.warn(
-              `Failed to delete Google file ${googleFileIdForDeletion}: ${deleteResponse.status}`
-            );
-          }
-        } catch (error) {
-          // Log error but don't fail - deletion is best effort
-          console.warn(
-            `Error deleting Google file ${googleFileIdForDeletion}:`,
-            error
-          );
-        }
-      }
 
       return {
         analysis,

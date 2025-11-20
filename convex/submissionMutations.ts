@@ -147,6 +147,32 @@ export const updateSubmissionWithDownsizedUrl = internalMutation({
 });
 
 /**
+ * Update submission with Gemini file URI and ID (from Cloud Run service).
+ */
+export const updateSubmissionWithGeminiFile = internalMutation({
+  args: {
+    submissionId: v.id('submissions'),
+    geminiFileUri: v.string(),
+    geminiFileId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const submission = await ctx.db.get(args.submissionId);
+    if (!submission) {
+      console.warn(`Submission with id ${args.submissionId} not found`);
+      return null;
+    }
+
+    await ctx.db.patch(args.submissionId, {
+      googleFileId: args.geminiFileId, // Reuse existing field
+      downsizedDownloadUrl: args.geminiFileUri, // Store URI here for now
+    });
+
+    return null;
+  },
+});
+
+/**
  * Update submission with Google Files API file ID.
  */
 export const updateSubmissionGoogleFileId = internalMutation({
@@ -188,7 +214,7 @@ export const updateSubmissionWithAnalysis = internalMutation({
     }
 
     // Try to parse the analysis as JSON to extract structured data
-    let analysisResult: {
+    const analysisResult: {
       raw: string;
       scores?: {
         posture?: number;
