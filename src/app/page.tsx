@@ -1,29 +1,25 @@
 'use client';
 
-import { SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
+import { CTASection } from './_components/landing/cta-section';
+import { Footer } from './_components/landing/footer';
+import { HeroSection } from './_components/landing/hero-section';
+import { HowItWorksSection } from './_components/landing/how-it-works-section';
+import { Navigation } from './_components/landing/navigation';
+import { PricingSection } from './_components/landing/pricing-section';
+import { TestimonialsSection } from './_components/landing/testimonials-section';
 
 export default function Home() {
   return (
     <>
-      <header className="sticky top-0 z-10 bg-background p-4 border-b-2 border-slate-200 dark:border-slate-800 flex flex-row justify-between items-center">
-        Convex + Next.js + Clerk
-        <UserButton />
-      </header>
-      <main className="p-8 flex flex-col gap-8">
-        <div className="flex flex-col gap-8 w-96 mx-auto">
-          <p>Log in to see the numbers</p>
-          <SignInButton mode="modal">
-            <button className="bg-foreground text-background px-4 py-2 rounded-md">
-              Sign in
-            </button>
-          </SignInButton>
-          <SignUpButton mode="modal">
-            <button className="bg-foreground text-background px-4 py-2 rounded-md">
-              Sign up
-            </button>
-          </SignUpButton>
-        </div>
+      <Navigation />
+      <main>
+        <HeroSection />
+        <HowItWorksSection />
+        <TestimonialsSection />
+        <PricingSection />
+        <CTASection />
       </main>
+      <Footer />
     </>
   );
 }
