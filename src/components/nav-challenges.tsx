@@ -2,6 +2,7 @@
 
 import { useQuery } from 'convex/react';
 import { Folder } from 'lucide-react';
+import Link from 'next/link';
 
 import {
   SidebarGroup,
@@ -24,10 +25,10 @@ export function NavChallenges() {
         {challenges.map((challenge: Challenge) => (
           <SidebarMenuItem key={challenge._id}>
             <SidebarMenuButton asChild>
-              <a href={`/dashboard/challenges/${challenge._id}`}>
+              <Link href={`/dashboard/challenges/${challenge._id}`}>
                 <Folder />
                 <span>{challenge.title}</span>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         ))}
