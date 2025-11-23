@@ -31,7 +31,7 @@ export function CreateChallengeDialog() {
       <DialogTrigger asChild>
         <Button>Create Challenge</Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] flex flex-col">
         {isLoading ? (
           <div className="flex items-center justify-center p-8">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -42,7 +42,9 @@ export function CreateChallengeDialog() {
             <DialogDescription>
               Set up a new speaking challenge to track your progress.
             </DialogDescription>
-            <ChallengeForm onSuccess={() => setOpen(false)} />
+            <div className="overflow-y-auto flex-1 min-h-0">
+              <ChallengeForm onSuccess={() => setOpen(false)} />
+            </div>
           </>
         ) : (
           <>
@@ -50,10 +52,12 @@ export function CreateChallengeDialog() {
             <DialogDescription>
               You need an active subscription to create custom challenges.
             </DialogDescription>
-            <Paywall
-              onUpgrade={() => setOpen(false)}
-              onSubscriptionComplete={handleSubscriptionComplete}
-            />
+            <div className="overflow-y-auto flex-1 min-h-0">
+              <Paywall
+                onUpgrade={() => setOpen(false)}
+                onSubscriptionComplete={handleSubscriptionComplete}
+              />
+            </div>
           </>
         )}
       </DialogContent>

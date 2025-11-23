@@ -1,99 +1,44 @@
 'use client';
 
-import { UserProfile, useUser } from '@clerk/nextjs';
+import { UserButton as ClerkUserButton, useUser } from '@clerk/nextjs';
 import { ChevronsUpDown } from 'lucide-react';
 
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
-} from '@/components/ui/sidebar';
-
-import { Skeleton } from './ui/skeleton';
-
-const UserButton = ({
-  isLoaded,
-  name,
-  email,
-  imageUrl,
-}: {
-  isLoaded: boolean;
-  name: string | null;
-  email: string | null;
-  imageUrl: string | null;
-}) => {
-  if (!isLoaded) {
-    return (
-      <SidebarMenuButton
-        size="lg"
-        className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-      >
-        <Skeleton className="h-12 w-12 rounded-full" />
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-[250px]" />
-          <Skeleton className="h-4 w-[200px]" />
-        </div>
-      </SidebarMenuButton>
-    );
-  }
-
-  const userInitials = name
-    ?.split(' ')
-    .map((name: string) => name[0])
-    .join('');
-  return (
-    <SidebarMenuButton
-      size="lg"
-      className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-    >
-      <Avatar className="h-8 w-8 rounded-lg">
-        <AvatarImage src={imageUrl ?? ''} alt={name ?? 'User Avatar'} />
-        <AvatarFallback className="rounded-lg">{userInitials}</AvatarFallback>
-      </Avatar>
-      <div className="grid flex-1 text-left text-sm leading-tight">
-        <span className="truncate font-medium">{name}</span>
-        <span className="truncate text-xs">{email}</span>
-      </div>
-      <ChevronsUpDown className="ml-auto size-4" />
-    </SidebarMenuButton>
-  );
-};
+import { SidebarMenu, SidebarMenuItem } from '@/components/ui/sidebar';
 
 export function NavUser() {
-  const { isMobile } = useSidebar();
   const { user, isLoaded } = useUser();
 
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <UserButton
-              isLoaded={isLoaded}
-              name={user?.fullName ?? null}
-              email={user?.primaryEmailAddress?.emailAddress ?? null}
-              imageUrl={user?.imageUrl ?? null}
-            />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
-            side={isMobile ? 'bottom' : 'right'}
-            align="end"
-            sideOffset={4}
-          >
-            <DropdownMenuItem>
-              <UserProfile />
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="group relative w-full">
+          <ClerkUserButton
+            appearance={{
+              elements: {
+                rootBox: 'w-full',
+                userButtonTrigger:
+                  'w-full h-full justify-start data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground rounded-md p-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors min-h-[3rem]',
+                userButtonBox: 'w-full flex items-center gap-3 relative',
+                userButtonAvatarBox:
+                  'h-8 w-8 rounded-lg shrink-0 relative z-10',
+                userButtonOuterIdentifier: 'hidden',
+                userButtonPopoverCard: 'bg-background border',
+              },
+            }}
+          />
+          {isLoaded && user && (
+            <>
+              <div className="absolute left-12 top-1/2 -translate-y-1/2 flex flex-col flex-1 min-w-0 pr-8 pointer-events-none">
+                <span className="truncate text-sm font-medium leading-tight">
+                  {user.fullName}
+                </span>
+                <span className="truncate text-xs text-muted-foreground leading-tight">
+                  {user.primaryEmailAddress?.emailAddress || ''}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </SidebarMenuItem>
     </SidebarMenu>
   );

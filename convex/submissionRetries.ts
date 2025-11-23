@@ -5,6 +5,72 @@ import { v } from 'convex/values';
 import { api, internal } from './_generated/api';
 import { action } from './_generated/server';
 
+/**
+ * Manually check submission video status.
+ * This triggers an immediate status check, resetting the retry count to allow continued polling.
+ */
+export const checkSubmissionStatus = action({
+  args: {
+    submissionId: v.id('submissions'),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error('Not authenticated');
+    }
+
+    const submission = await ctx.runQuery(api.submissions.getById, {
+      submissionId: args.submissionId,
+    });
+
+    if (!submission) {
+      throw new Error('Submission not found');
+    }
+
+    if (submission.userId !== identity.subject) {
+      throw new Error('Unauthorized');
+    }
+
+    if (!submission.cloudflareUid) {
+      throw new Error('No Cloudflare UID available');
+    }
+
+    // Only allow checking status for states that are waiting for Cloudflare processing
+    if (
+      submission.state !== 'video_uploaded' &&
+      submission.state !== 'processing_timeout'
+    ) {
+      throw new Error(
+        `Cannot check status from state: ${submission.state}. Status check is only available when video is uploaded or processing timed out.`
+      );
+    }
+
+    // Reset retry count to 0 to allow continued polling
+    await ctx.runMutation(
+      internal.submissionMutations.updateSubmissionState,
+      {
+        submissionId: args.submissionId,
+        state: submission.state === 'processing_timeout' ? 'video_uploaded' : submission.state,
+        pollingRetryCount: 0,
+        errorMessage: undefined,
+      }
+    );
+
+    // Trigger immediate status check
+    await ctx.scheduler.runAfter(
+      0,
+      internal.submissionActions.checkSubmissionVideoStatus,
+      {
+        submissionId: args.submissionId,
+        retryCount: 0,
+      }
+    );
+
+    return null;
+  },
+});
+
 export const retrySubmissionStep = action({
   args: {
     submissionId: v.id('submissions'),

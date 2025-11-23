@@ -290,6 +290,9 @@ export const VideoSection = ({
   const retrySubmissionStep = useAction(
     (api as any).submissionRetries?.retrySubmissionStep
   );
+  const checkSubmissionStatus = useAction(
+    (api as any).submissionRetries?.checkSubmissionStatus
+  );
 
   const handleRetry = async () => {
     if (!retrySubmissionStep) {
@@ -303,6 +306,25 @@ export const VideoSection = ({
       toast.success('Retrying step...');
     } catch (error) {
       toast.error('Failed to retry step', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    if (!checkSubmissionStatus) {
+      toast.error('Check status functionality not available yet');
+      return;
+    }
+
+    setIsRetrying(true);
+    try {
+      await checkSubmissionStatus({ submissionId });
+      toast.success('Checking video status...');
+    } catch (error) {
+      toast.error('Failed to check status', {
         description: error instanceof Error ? error.message : 'Unknown error',
       });
     } finally {
@@ -375,7 +397,7 @@ export const VideoSection = ({
   if (errorMessage) {
     if (state === 'video_uploaded' || state === 'processing_timeout') {
       return (
-        <VideoUploadFailed onRetry={handleRetry} isRetrying={isRetrying} />
+        <VideoUploadFailed onRetry={handleCheckStatus} isRetrying={isRetrying} />
       );
     }
     if (state === 'video_processed') {
@@ -392,7 +414,7 @@ export const VideoSection = ({
 
   if (state === 'processing_timeout') {
     return (
-      <VideoProcessingTimeout onRetry={handleRetry} isRetrying={isRetrying} />
+      <VideoProcessingTimeout onRetry={handleCheckStatus} isRetrying={isRetrying} />
     );
   }
 
@@ -400,7 +422,7 @@ export const VideoSection = ({
     // Video uploaded, waiting for Cloudflare to process
     return (
       <VideoProcessing
-        onRetry={handleRetry}
+        onRetry={handleCheckStatus}
         isRetrying={isRetrying}
         showRetry={true}
       />
