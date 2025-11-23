@@ -845,6 +845,7 @@ export const getCompressedSubmissionVideoDownloadUrl = internalAction({
           submissionId: args.submissionId,
           geminiFileUri: compressData.uri,
           desiredImprovements: challenge.desiredImprovements,
+          specifyPrompt: challenge.specifyPrompt,
         }
       );
 
@@ -877,6 +878,7 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
     submissionId: v.id('submissions'),
     geminiFileUri: v.string(), // Changed from compressedVideoUrl
     desiredImprovements: v.array(v.string()),
+    specifyPrompt: v.string(),
   },
   returns: v.object({
     analysis: v.string(),
@@ -952,41 +954,60 @@ export const analyzeSubmissionVideoWithGemini = internalAction({
       // Send file URI to Gemini API for analysis
       const analysisPrompt = `You are an expert Public Speaking Coach analyzing a video performance.
 
-USER'S GOALS: The user wants to improve: ${args.desiredImprovements.join(', ')}
+USER'S INTENTION AND GOAL:
+${args.specifyPrompt}
 
-Analyze this video and provide a structured assessment. Focus on evaluating the user's performance in front of the camera, specifically looking at their public speaking skills.
+AREAS TO IMPROVE: ${args.desiredImprovements.join(', ')}
+
+CRITICAL INSTRUCTIONS:
+1. SCORING MUST REFLECT USER'S INTENTION: Score the video based on how well it matches the user's intended style/goal. For example:
+   - If the user wants to be a professional news reader: A vlogging-style video (moving around, casual) should score LOWER than a video where they sit at a desk, speak directly to camera with a microphone, and maintain professional composure.
+   - If the user wants to be a vlogger: A formal, seated presentation should score LOWER than an engaging, dynamic video with movement and personality.
+   - Always consider: Does this video style match what the user is trying to achieve?
+
+2. KEY MOMENTS: Focus on SPECIFIC MOMENTS IN THE VIDEO where the user should concentrate on improving based on their goals. These should be actionable moments that highlight:
+   - Areas where they deviated from their intended style
+   - Moments where they could better align with their goal
+   - Specific instances where they can practice improvement
+   Format as: "At [time/context]: [specific observation and what to improve]"
+   Example: "At 0:45 when explaining the concept: You looked away from camera - maintain direct eye contact for professional news reader style"
+
+3. SCORES: Rate each area 1-10, where:
+   - Higher scores = better alignment with user's intended goal/style
+   - Lower scores = further from their intended goal/style
+   - Consider the context: A casual vlog might score high on "authenticity" but low on "posture" if the user wants professional news reader style
 
 EVALUATION AREAS:
-- Posture: Body positioning, stance, physical presence
-- Emotions: Emotional expression, facial expressions, emotional range
-- Fillers: Use of filler words (um, uh, like, etc.)
-- Eye Contact: Directness, consistency, engagement with camera
-- Voice Clarity: Articulation, pronunciation, speech clarity
-- Body Language: Gestures, movements, physical expressiveness
+- Posture: Body positioning, stance, physical presence (evaluate based on intended style)
+- Emotions: Emotional expression, facial expressions, emotional range (appropriate for goal)
+- Fillers: Use of filler words (um, uh, like, etc.) - less is better for all styles
+- Eye Contact: Directness, consistency, engagement with camera (critical for most styles)
+- Voice Clarity: Articulation, pronunciation, speech clarity (essential for all styles)
+- Body Language: Gestures, movements, physical expressiveness (evaluate based on intended style)
 - Confidence: Overall confidence level, self-assurance
-- Storytelling: Narrative structure, engagement, flow
-- Energy Level: Enthusiasm, dynamism, energy
-- Authenticity: Genuineness, naturalness, being yourself
+- Storytelling: Narrative structure, engagement, flow (if relevant to goal)
+- Energy Level: Enthusiasm, dynamism, energy (appropriate for intended style)
+- Authenticity: Genuineness, naturalness, being yourself (within context of goal)
 
 Provide your response as a JSON object with the following exact structure:
 {
   "scores": {
-    "posture": <number 1-10>,
-    "emotions": <number 1-10>,
-    "fillers": <number 1-10>,
+    "posture": <number 1-10, based on alignment with intended style>,
+    "emotions": <number 1-10, based on appropriateness for goal>,
+    "fillers": <number 1-10, lower = more fillers>,
     "eye_contact": <number 1-10>,
     "voice_clarity": <number 1-10>,
-    "body_language": <number 1-10>,
+    "body_language": <number 1-10, based on intended style>,
     "confidence": <number 1-10>,
-    "storytelling": <number 1-10>,
-    "energy_level": <number 1-10>,
-    "authenticity": <number 1-10>,
-    "overall": <number 1-10>
+    "storytelling": <number 1-10, if relevant>,
+    "energy_level": <number 1-10, appropriate for goal>,
+    "authenticity": <number 1-10, within context of goal>,
+    "overall": <number 1-10, overall alignment with user's intention>
   },
-  "summary": "<3 lines max: Overall performance summary>",
+  "summary": "<3 lines max: Overall performance summary focusing on alignment with user's goal>",
   "card_description": "<1 short sentence, max 10 words, for list view>",
-  "key_moments": ["<moment 1>", "<moment 2>", "<moment 3>"],
-  "improvement_tips": ["<tip 1>", "<tip 2>", "<tip 3>"]
+  "key_moments": ["<specific moment 1 with time/context and improvement focus>", "<specific moment 2>", "<specific moment 3>"],
+  "improvement_tips": ["<tip 1 focused on achieving user's goal>", "<tip 2>", "<tip 3>"]
 }
 
 IMPORTANT: Return ONLY valid JSON. Do not wrap in markdown code blocks. Do not include any text before or after the JSON.`;

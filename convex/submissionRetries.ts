@@ -47,15 +47,15 @@ export const checkSubmissionStatus = action({
     }
 
     // Reset retry count to 0 to allow continued polling
-    await ctx.runMutation(
-      internal.submissionMutations.updateSubmissionState,
-      {
-        submissionId: args.submissionId,
-        state: submission.state === 'processing_timeout' ? 'video_uploaded' : submission.state,
-        pollingRetryCount: 0,
-        errorMessage: undefined,
-      }
-    );
+    await ctx.runMutation(internal.submissionMutations.updateSubmissionState, {
+      submissionId: args.submissionId,
+      state:
+        submission.state === 'processing_timeout'
+          ? 'video_uploaded'
+          : submission.state,
+      pollingRetryCount: 0,
+      errorMessage: undefined,
+    });
 
     // Trigger immediate status check
     await ctx.scheduler.runAfter(
@@ -188,6 +188,7 @@ export const retrySubmissionStep = action({
             submissionId: args.submissionId,
             geminiFileUri: submission.downsizedDownloadUrl, // This now contains the Gemini file URI
             desiredImprovements: challenge.desiredImprovements,
+            specifyPrompt: challenge.specifyPrompt,
           }
         );
         break;

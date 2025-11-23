@@ -397,7 +397,10 @@ export const VideoSection = ({
   if (errorMessage) {
     if (state === 'video_uploaded' || state === 'processing_timeout') {
       return (
-        <VideoUploadFailed onRetry={handleCheckStatus} isRetrying={isRetrying} />
+        <VideoUploadFailed
+          onRetry={handleCheckStatus}
+          isRetrying={isRetrying}
+        />
       );
     }
     if (state === 'video_processed') {
@@ -414,7 +417,10 @@ export const VideoSection = ({
 
   if (state === 'processing_timeout') {
     return (
-      <VideoProcessingTimeout onRetry={handleCheckStatus} isRetrying={isRetrying} />
+      <VideoProcessingTimeout
+        onRetry={handleCheckStatus}
+        isRetrying={isRetrying}
+      />
     );
   }
 
@@ -573,6 +579,9 @@ export const VideoSection = ({
                                 disabled={
                                   isUploading || !form.state.values.video
                                 }
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                }}
                               >
                                 {isUploading ? 'Uploading...' : 'Upload Video'}
                               </Button>
