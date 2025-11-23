@@ -14,6 +14,7 @@ export const list = query({
       desiredImprovements: v.array(v.string()),
       specifyPrompt: v.string(),
       generateTopic: v.boolean(),
+      isTrial: v.optional(v.boolean()),
       _creationTime: v.number(),
     })
   ),
@@ -46,6 +47,7 @@ export const getById = query({
       desiredImprovements: v.array(v.string()),
       specifyPrompt: v.string(),
       generateTopic: v.boolean(),
+      isTrial: v.optional(v.boolean()),
       submissionSlots: v.array(
         v.object({
           position: v.number(),
@@ -154,6 +156,30 @@ export const getById = query({
 });
 
 /**
+ * Check if user has a trial challenge
+ */
+export const hasTrialChallenge = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return false;
+    }
+
+    const userId = identity.subject;
+
+    const trialChallenge = await ctx.db
+      .query('challenges')
+      .withIndex('by_userId', (q) => q.eq('userId', userId))
+      .filter((q) => q.eq(q.field('isTrial'), true))
+      .first();
+
+    return trialChallenge !== null;
+  },
+});
+
+/**
  * Get a challenge by ID (internal, no auth check).
  * Used by internal actions that need to access challenges.
  */
@@ -170,6 +196,7 @@ export const getByIdInternal = internalQuery({
       desiredImprovements: v.array(v.string()),
       specifyPrompt: v.string(),
       generateTopic: v.boolean(),
+      isTrial: v.optional(v.boolean()),
       _creationTime: v.number(),
     }),
     v.null()

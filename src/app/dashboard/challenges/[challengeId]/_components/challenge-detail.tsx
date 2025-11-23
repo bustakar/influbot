@@ -167,6 +167,7 @@ const ChallengeDetailCard = ({
   specifyPrompt,
   submissionsCount,
   creationTime,
+  isTrial,
 }: ChallengeDetailCardProps) => {
   const progressPercentage = Math.round(
     (submissionsCount / requiredNumberOfSubmissions) * 100
@@ -176,7 +177,14 @@ const ChallengeDetailCard = ({
     <div className="space-y-4">
       {/* Title and creation date */}
       <div>
-        <h1 className="text-4xl font-bold">{title}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-4xl font-bold">{title}</h1>
+          {isTrial && (
+            <span className="px-3 py-1 text-xs font-semibold rounded-full bg-primary/10 text-primary border border-primary/20">
+              Trial Challenge
+            </span>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground mt-2">
           Created {new Date(creationTime).toLocaleString()}
         </p>
@@ -251,6 +259,7 @@ export default function ChallengeDetail({ id }: { id: Id<'challenges'> }) {
         specifyPrompt={challenge.specifyPrompt}
         submissionsCount={challenge.completedCount}
         creationTime={challenge._creationTime}
+        isTrial={challenge.isTrial}
       />
 
       <Separator />

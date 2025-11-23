@@ -1,7 +1,8 @@
 'use client';
 
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { Folder } from 'lucide-react';
+import { useEffect } from 'react';
 
 import {
   Empty,
@@ -17,6 +18,19 @@ import { CreateChallengeDialog } from './_components/create-challenge-dialog';
 
 export default function DashboardPage() {
   const challenges = useQuery(api.challenges.list);
+  const hasTrialChallenge = useQuery(api.challenges.hasTrialChallenge);
+  const createTrialChallenge = useMutation(
+    api.challengeMutations.createTrialChallenge
+  );
+
+  // Auto-create trial challenge if user doesn't have one
+  useEffect(() => {
+    if (hasTrialChallenge === false) {
+      createTrialChallenge().catch((error) => {
+        console.error('Failed to create trial challenge:', error);
+      });
+    }
+  }, [hasTrialChallenge, createTrialChallenge]);
 
   if (challenges === undefined || challenges.length === 0) {
     return (

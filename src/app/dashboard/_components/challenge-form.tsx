@@ -50,7 +50,7 @@ const formSchema = z.object({
   generateTopic: z.boolean(),
 });
 
-export function ChallengeForm() {
+export function ChallengeForm({ onSuccess }: { onSuccess?: () => void }) {
   const createChallenge = useMutation(api.challengeMutations.createChallenge);
 
   const form = useForm({
@@ -76,6 +76,7 @@ export function ChallengeForm() {
 
         toast.success('Challenge created successfully!');
         form.reset();
+        onSuccess?.();
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : 'Failed to create challenge';

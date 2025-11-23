@@ -62,6 +62,7 @@ export const challengeValidator = v.object({
   desiredImprovements: v.array(v.string()),
   specifyPrompt: v.string(),
   generateTopic: v.boolean(),
+  isTrial: v.optional(v.boolean()),
 });
 
 export default defineSchema({
