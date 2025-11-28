@@ -4,16 +4,23 @@ import { SignUpButton } from '@clerk/nextjs';
 import { Check } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
 const plans = [
   {
-    name: 'Starter',
+    name: 'Trial',
     price: 'Free',
     description: 'Perfect for trying out the platform',
     features: [
       '1 active challenge',
-      '7 days of video practice',
+      '2 days of video practice',
       'Basic AI feedback',
       'Daily video uploads',
     ],
@@ -31,25 +38,9 @@ const plans = [
       'Unlimited video practice',
       'Advanced AI analysis',
       'Detailed improvement tracking',
-      'Priority support',
-      'Export your progress',
     ],
     cta: 'Start Free Trial',
     popular: true,
-  },
-  {
-    name: 'Enterprise',
-    price: 'Custom',
-    description: 'For teams and organizations',
-    features: [
-      'Everything in Pro',
-      'Team collaboration',
-      'Custom AI training',
-      'Dedicated support',
-      'Analytics dashboard',
-    ],
-    cta: 'Contact Sales',
-    popular: false,
   },
 ];
 
@@ -64,12 +55,17 @@ function FeatureItem({ feature }: { feature: string }) {
 
 export function PricingSection() {
   return (
-    <section id="pricing" className="py-20 px-4 bg-background">
+    <section id="pricing" className="py-24 px-4 relative overflow-hidden">
+      <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-primary/5 via-background to-background" />
       <div className="container mx-auto max-w-6xl">
-        <h2 className="text-4xl md:text-5xl font-bold text-center mb-16">
-          Choose Your Plan
+        <h2 className="text-4xl md:text-5xl font-bold text-center mb-6">
+          Simple, Transparent Pricing
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <p className="text-xl text-muted-foreground text-center mb-16 max-w-2xl mx-auto">
+          Start your journey to confidence today. No hidden fees, cancel
+          anytime.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           {plans.map((plan, index) => (
             <Card
               key={index}
@@ -103,21 +99,15 @@ export function PricingSection() {
                 ))}
               </CardContent>
               <CardFooter>
-                {plan.name === 'Enterprise' ? (
-                  <Button variant="outline" className="w-full" size="lg">
+                <SignUpButton mode="modal">
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    variant={plan.popular ? 'default' : 'outline'}
+                  >
                     {plan.cta}
                   </Button>
-                ) : (
-                  <SignUpButton mode="modal">
-                    <Button
-                      className="w-full"
-                      size="lg"
-                      variant={plan.popular ? 'default' : 'outline'}
-                    >
-                      {plan.cta}
-                    </Button>
-                  </SignUpButton>
-                )}
+                </SignUpButton>
               </CardFooter>
             </Card>
           ))}
@@ -126,4 +116,3 @@ export function PricingSection() {
     </section>
   );
 }
-

@@ -56,14 +56,9 @@ export function Navigation() {
                 <UserButton />
               </>
             ) : (
-              <>
-                <SignInButton mode="modal">
-                  <Button variant="ghost">Sign In</Button>
-                </SignInButton>
-                <SignUpButton mode="modal">
-                  <Button>Sign Up</Button>
-                </SignUpButton>
-              </>
+              <SignUpButton mode="modal">
+                <Button>Get Started</Button>
+              </SignUpButton>
             )}
           </div>
 
@@ -108,16 +103,9 @@ export function Navigation() {
                     </div>
                   </>
                 ) : (
-                  <>
-                    <SignInButton mode="modal">
-                      <Button variant="outline" className="w-full">
-                        Sign In
-                      </Button>
-                    </SignInButton>
-                    <SignUpButton mode="modal">
-                      <Button className="w-full">Sign Up</Button>
-                    </SignUpButton>
-                  </>
+                  <SignUpButton mode="modal">
+                    <Button className="w-full">Get Started</Button>
+                  </SignUpButton>
                 )}
               </div>
             </div>

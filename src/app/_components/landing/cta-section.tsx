@@ -13,7 +13,7 @@ export function CTASection() {
           Ready to Transform Your On-Camera Presence?
         </h2>
         <p className="text-xl text-muted-foreground mb-10">
-          Join thousands who have already started their journey to confidence
+          Join those who have already started their journey to confidence
         </p>
         <div className="flex flex-col items-center gap-4">
           <SignUpButton mode="modal">
@@ -30,5 +30,3 @@ export function CTASection() {
     </section>
   );
 }
-
-
