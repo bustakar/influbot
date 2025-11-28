@@ -158,6 +158,7 @@ type ChallengeDetailCardProps = {
   specifyPrompt: string;
   submissionsCount: number;
   creationTime: number;
+  isTrial?: boolean;
 };
 
 const ChallengeDetailCard = ({
