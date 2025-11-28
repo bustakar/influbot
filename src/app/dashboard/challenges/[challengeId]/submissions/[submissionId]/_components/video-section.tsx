@@ -285,13 +285,11 @@ export const VideoSection = ({
   );
   //   const deleteVideo = useAction(api.videos.deleteVideo);
 
-  // Assuming this exists after my backend change, using 'any' to bypass type check until codegen runs
-  // In a real scenario, we would run codegen first.
   const retrySubmissionStep = useAction(
-    (api as any).submissionRetries?.retrySubmissionStep
+    api.submissionRetries.retrySubmissionStep
   );
   const checkSubmissionStatus = useAction(
-    (api as any).submissionRetries?.checkSubmissionStatus
+    api.submissionRetries.checkSubmissionStatus
   );
 
   const handleRetry = async () => {

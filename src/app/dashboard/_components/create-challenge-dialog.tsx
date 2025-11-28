@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { Paywall } from '@/components/paywall';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -10,8 +11,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-
-import { Paywall } from '@/components/paywall';
 import { useSubscription } from '@/hooks/use-subscription';
 
 import { ChallengeForm } from './challenge-form';

@@ -27,17 +27,11 @@ export function useSubscription() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-
     async function initialCheck() {
       await checkSubscription();
     }
 
     initialCheck();
-
-    return () => {
-      mounted = false;
-    };
   }, [checkSubscription]);
 
   return {

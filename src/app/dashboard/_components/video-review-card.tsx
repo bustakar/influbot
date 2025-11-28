@@ -66,63 +66,7 @@ interface VideoReviewCardProps {
 }
 
 export function VideoReviewCard({ video }: VideoReviewCardProps) {
-  const retryUpload = useAction(api.videos.retryUpload);
-  const retryCompression = useAction(api.videos.retryCompression);
-  const retryAnalysis = useAction(api.videos.retryAnalysis);
   const checkStatusManually = useAction(api.videos.checkVideoStatusManually);
-
-  const handleRetryCompression = async () => {
-    if (!video.cloudflareUid) {
-      toast.error('No video UID available');
-      return;
-    }
-    try {
-      await retryCompression({ cloudflareUid: video.cloudflareUid });
-      toast.success('Retrying compression...');
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to retry compression';
-      toast.error('Retry failed', {
-        description: errorMessage,
-      });
-    }
-  };
-
-  const handleRetryUpload = async () => {
-    if (!video.cloudflareUid) {
-      toast.error('No video UID available');
-      return;
-    }
-    try {
-      await retryUpload({ cloudflareUid: video.cloudflareUid });
-      toast.success(
-        'New upload URL generated. Please upload your video again using the upload form above.'
-      );
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to retry upload';
-      toast.error('Retry failed', {
-        description: errorMessage,
-      });
-    }
-  };
-
-  const handleRetryAnalysis = async () => {
-    if (!video.cloudflareUid) {
-      toast.error('No video UID available');
-      return;
-    }
-    try {
-      await retryAnalysis({ cloudflareUid: video.cloudflareUid });
-      toast.success('Retrying analysis...');
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to retry analysis';
-      toast.error('Retry failed', {
-        description: errorMessage,
-      });
-    }
-  };
 
   const handleCheckStatus = async () => {
     if (!video.cloudflareUid) {

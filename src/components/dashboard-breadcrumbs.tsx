@@ -1,8 +1,8 @@
 'use client';
 
 import { useQuery } from 'convex/react';
-import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 import {
   Breadcrumb,
