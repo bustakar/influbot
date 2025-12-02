@@ -75,7 +75,7 @@ export const markSubmissionUploaded = mutation({
     });
 
     await ctx.scheduler.runAfter(
-      30,
+      30 * 1000,
       internal.submissionActions.checkSubmissionVideoStatus,
       {
         submissionId: args.submissionId,

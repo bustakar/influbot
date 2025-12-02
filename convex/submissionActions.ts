@@ -397,7 +397,7 @@ export const checkSubmissionVideoStatus = internalAction({
   returns: v.null(),
   handler: async (ctx, args) => {
     const MAX_RETRY_COUNT = 20; // Increased to allow for page reloads and longer processing
-    const POLLING_INTERVAL_SECONDS = 30;
+    const POLLING_INTERVAL_MS = 30 * 1000; // 30 seconds in milliseconds
 
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     const apiToken = process.env.CLOUDFLARE_API_TOKEN;
@@ -431,7 +431,7 @@ export const checkSubmissionVideoStatus = internalAction({
         {
           submissionId: args.submissionId,
           state: 'processing_timeout',
-          errorMessage: `Video processing timed out after ${MAX_RETRY_COUNT} attempts (${MAX_RETRY_COUNT * POLLING_INTERVAL_SECONDS} seconds). Cloudflare may be experiencing issues. Please check status manually.`,
+          errorMessage: `Video processing timed out after ${MAX_RETRY_COUNT} attempts (${(MAX_RETRY_COUNT * POLLING_INTERVAL_MS) / 1000} seconds). Cloudflare may be experiencing issues. Please check status manually.`,
           pollingRetryCount: args.retryCount,
         }
       );
@@ -461,7 +461,7 @@ export const checkSubmissionVideoStatus = internalAction({
             );
             const nextRetryCount = args.retryCount + 1;
             await ctx.scheduler.runAfter(
-              POLLING_INTERVAL_SECONDS,
+              POLLING_INTERVAL_MS,
               internal.submissionActions.checkSubmissionVideoStatus,
               {
                 submissionId: args.submissionId,
@@ -517,7 +517,7 @@ export const checkSubmissionVideoStatus = internalAction({
         const nextRetryCount = args.retryCount + 1;
         if (nextRetryCount < MAX_RETRY_COUNT) {
           await ctx.scheduler.runAfter(
-            POLLING_INTERVAL_SECONDS,
+            POLLING_INTERVAL_MS,
             internal.submissionActions.checkSubmissionVideoStatus,
             {
               submissionId: args.submissionId,
@@ -543,7 +543,7 @@ export const checkSubmissionVideoStatus = internalAction({
         const nextRetryCount = args.retryCount + 1;
         if (nextRetryCount < MAX_RETRY_COUNT) {
           await ctx.scheduler.runAfter(
-            POLLING_INTERVAL_SECONDS,
+            POLLING_INTERVAL_MS,
             internal.submissionActions.checkSubmissionVideoStatus,
             {
               submissionId: args.submissionId,
@@ -600,7 +600,7 @@ export const checkSubmissionVideoStatus = internalAction({
         const nextRetryCount = args.retryCount + 1;
         if (nextRetryCount < MAX_RETRY_COUNT) {
           await ctx.scheduler.runAfter(
-            POLLING_INTERVAL_SECONDS,
+            POLLING_INTERVAL_MS,
             internal.submissionActions.checkSubmissionVideoStatus,
             {
               submissionId: args.submissionId,
@@ -623,7 +623,7 @@ export const checkSubmissionVideoStatus = internalAction({
       const nextRetryCount = args.retryCount + 1;
       if (nextRetryCount < MAX_RETRY_COUNT) {
         await ctx.scheduler.runAfter(
-          POLLING_INTERVAL_SECONDS,
+          POLLING_INTERVAL_MS,
           internal.submissionActions.checkSubmissionVideoStatus,
           {
             submissionId: args.submissionId,
